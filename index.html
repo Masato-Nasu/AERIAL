@@ -1,49 +1,27 @@
 <!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-  <title>AERIAL v9.5 — Hard Reset & Diagnostics</title>
-  <link rel="manifest" href="manifest.json?v=9.5"/>
-  <link rel="icon" href="icon-192.png" sizes="192x192"/>
-  <style>
-    body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
-    .wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
-    a{color:#8fd3ff;text-decoration:none;padding:10px 14px;border:1px solid #253043;border-radius:10px;background:#0f1320;margin:0 6px}
-    .muted{color:#8a8f98;font-size:13px;margin-top:10px;text-align:center}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div style="text-align:center">
-      <h1 style="font-weight:500;margin:0 0 12px">AERIAL v9.5 — Hard Reset</h1>
-      <p>
-        <a id="launch" href="app-v95.html?v=9.5">▶ Launch (本体)</a>
-        <a id="diag" href="audio-diagnostics.html?v=9.5">🧪 Audio Diagnostics</a>
-      </p>
-      <p class="muted" id="status">Resetting old Service Workers & caches…</p>
-    </div>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v9.0</title>
+<link rel="manifest" href="manifest.json?v=9.0"/>
+<link rel="icon" href="icon-192.png" sizes="192x192"/>
+<style>
+  body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
+  .wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
+  a{color:#8fd3ff;text-decoration:none;padding:10px 14px;border:1px solid #253043;border-radius:10px;background:#0f1320}
+</style>
+</head><body>
+<div class="wrap">
+  <div>
+    <h1 style="font-weight:500;margin:0 0 12px">AERIAL v9.0 — Distributable Edition</h1>
+    <p><a href="hum-theremin-recorder.html?v=9.0">▶ Launch</a></p>
   </div>
-  <script>
-  (async () => {
-    try {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(r => r.unregister()));
-      }
-      if (window.caches && caches.keys) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
-      }
-      await new Promise(r => setTimeout(r, 300));
-      if ('serviceWorker' in navigator) {
-        try { await navigator.serviceWorker.register('./sw-v9-5.js?v=9.5&ts=20251012162544', { scope: './' }); } catch (e) {}
-      }
-      document.getElementById('status').textContent = 'Ready.';
-    } catch (e) {
-      document.getElementById('status').textContent = 'Reset done (fallback).';
-    }
-  })();
-  </script>
-</body>
-</html>
+</div>
+<script>
+// SW register
+if('serviceWorker' in navigator){
+  addEventListener('load', async ()=>{
+    try{ await navigator.serviceWorker.register('./sw.js?v=9.0&bust='+Date.now()); }catch(e){}
+  });
+}
+</script>
+</body></html>

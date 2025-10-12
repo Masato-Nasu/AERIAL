@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v9.3 — Distributable Edition</title>
+<title>AERIAL v9.0 — Distributable Edition</title>
 <link rel="manifest" href="manifest.json?v=9.0"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
@@ -19,7 +19,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v9.3 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v9.0 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -44,6 +44,7 @@ let bgmEl=null, bgmSrc=null, bgmGain=null;
 let chimeBuf=null, chimeGain;
 const masterEl=document.getElementById('master'), thgainEl=document.getElementById('thgain');
 const bgmMode=document.getElementById('bgmMode'), bgmFile=document.getElementById('bgmFile');
+const recStartBtn=document.getElementById('recStart'), recStopBtn=document.getElementById('recStop'), recStatus=document.getElementById('recStatus');
 const btnPause=document.getElementById('btnPause');
 const overlay=document.getElementById('unlock'), btnUnlock=document.getElementById('btnUnlock');
 
@@ -57,9 +58,9 @@ function makeImpulseResponse(ctx,duration=2.6,decay=5.5,reverse=false){const rat
   recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
   recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
 }
-return out;}
-return dv;}
-ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
+function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
+function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
+function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
 
 async function setup(){
   if(audioCtx) return;
@@ -91,8 +92,7 @@ async function setup(){
 
   // Optional file BGM
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous'; bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=0.9; bgmSrc.connect(bgmGain).connect(masterG);
-
-  initSensors();
+initSensors();
 }
 
 function autoUnlockAttempt(){
