@@ -1,18 +1,36 @@
 // sw.js v8.2a — AERIAL
-const SW_VERSION = 'v8.2b';
+const SW_VERSION = 'v8.2c';
 const CACHE = 'aerial-' + SW_VERSION;
 const ASSETS = [
-  './Chime.mp3', './chime.mp3',
-  './Chime.mp3',
   './',
-  './index.html?v=8.2',
-  './hum-theremin-recorder.html?v=8.2',
-  './manifest.json?v=8.2',
+  './index.html?v=8.2c',
+  './hum-theremin-recorder.html?v=8.2c',
+  './manifest.json?v=8.2c',
   './icon-192.png',
   './icon-512.png',
-  './chime.mp3'
+  './Chime.mp3'
 ];
-self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); });
+
+self.addEventListener('install', (e) => {
+  e.waitUntil((async () => {
+    try {
+      const cache = await caches.open(CACHE);
+      const added = new Set();
+      for (const url of ASSETS) {
+        const u = new URL(url, self.location).toString();
+        if (added.has(u)) continue;
+        try { await cache.add(u); added.add(u); } catch(e){ /* ignore */ }
+      }
+      try {
+        const hasUp = await cache.match('./Chime.mp3');
+        if (!hasUp) { await cache.add('./chime.mp3'); }
+      } catch(e){}
+      await self.skipWaiting();
+    } catch(err) {
+      await self.skipWaiting();
+    }
+  })());
+});
 self.addEventListener('activate', (e) => { e.waitUntil((async () => { const keys = await caches.keys(); await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))); await self.clients.claim(); })()); });
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);

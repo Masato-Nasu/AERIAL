@@ -3,7 +3,7 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>AERIAL — v8.2 HumTaste × Theremin + Recorder</title>
 <meta name="theme-color" content="#0b0d11"/>
-<link rel="manifest" href="manifest.json?v=8.2b"/>
+<link rel="manifest" href="manifest.json?v=8.2c"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   body{margin:0;background:linear-gradient(180deg,#0b0d11,#10121a);color:#e6e6e6;font-family:system-ui,'Noto Sans JP',sans-serif}
@@ -19,13 +19,13 @@
   <h1>AERIAL</h1>
   <p>v8.2 — HumTaste × Theremin（内蔵アンプ優先）＋ WAV レコーダー</p>
   <div class="row">
-    <a class="btn" href="hum-theremin-recorder.html?v=8.2b">▶ Launch</a>
+    <a class="btn" href="hum-theremin-recorder.html?v=8.2c">▶ Launch</a>
   </div>
   <div class="muted">Dark Minimal / antenna icon · chime burst · yaw/pitch/roll smoothing</div>
 </div>
 
 <script>
-const APP_VERSION = '8.2b';
+window.APP_VERSION = (window.APP_VERSION||'8.2c');
 (async function hardResetIfNeeded() {
   try {
     // Persist current version in localStorage; if differs, nuke SW + caches
@@ -59,7 +59,7 @@ if ('serviceWorker' in navigator) {
 
 
 <script>
-const APP_VERSION = '8.2b';
+window.APP_VERSION = (window.APP_VERSION||'8.2c');
 (async function hardResetIfNeeded() {
   try {
     // Persist current version in localStorage; if differs, nuke SW + caches
