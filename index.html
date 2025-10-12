@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>AERIAL — Ambient Weather Music</title>
+  <title>AERIAL — Sensor MIDI Instrument</title>
   <meta name="theme-color" content="#0b0d11" />
-  <link rel="manifest" href="manifest.json?v=5" />
+  <link rel="manifest" href="manifest.json?v=1" />
   <link rel="icon" href="icon-192.png" sizes="192x192" />
   <style>
     body { margin:0; font-family: 'Noto Sans JP', system-ui, sans-serif; color:#e6e6e6; background:linear-gradient(180deg,#0b0d11,#10121a); }
     .center { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; text-align:center; padding:24px;}
-    h1 { font-size:32px; letter-spacing:4px; font-weight:300; margin-bottom:6px; }
-    p { font-size:15px; color:#a9b6c7; max-width:440px; }
+    h1 { font-size:30px; letter-spacing:3px; font-weight:300; margin-bottom:6px; }
+    p { font-size:14px; color:#a9b6c7; max-width:520px; }
     button { margin-top:18px; padding:12px 24px; background:#11263a; border:1px solid #224561; border-radius:10px; color:#cfe7ff; cursor:pointer; font-size:16px; }
     canvas { position:fixed; inset:0; width:100%; height:100%; z-index:-1; }
   </style>
@@ -21,13 +21,13 @@
 <div class="center">
   <img src="icon-192.png" alt="AERIAL logo" width="96" height="96" style="opacity:.9; filter:drop-shadow(0 0 12px #8fd3ff50);">
   <h1>AERIAL</h1>
-  <p>アンテナのように空気を受信し、環境から音楽を生み出すアンビエントアプリ。</p>
-  <button id="btnEnter">▶ Start</button>
+  <p>スマホのセンサーを <b>MIDI</b> にマッピングして外部シンセ/DAWを演奏します。Chrome系ブラウザ推奨。</p>
+  <button id="btnEnter">▶ Enter</button>
   <p style="margin-top:10px; font-size:12px; color:#7f8a98;">PWA対応：ホーム画面に追加して使えます</p>
 </div>
 <script>
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=5');
+  navigator.serviceWorker.register('./sw.js?v=1');
 }
 const c=document.getElementById('bg');const ctx=c.getContext('2d');
 function resize(){c.width=innerWidth; c.height=innerHeight;} resize(); addEventListener('resize',resize);
@@ -39,7 +39,7 @@ let t=0; function loop(){ requestAnimationFrame(loop); const w=c.width,h=c.heigh
   for(let i=0;i<60;i++){const x=(Math.sin(t*0.9+i)*0.5+0.5)*w; const y=(Math.cos(t*0.8+i*1.3)*0.5+0.5)*h; const r=1+Math.random()*2; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();}
 }
 loop();
-document.getElementById('btnEnter').onclick=()=>{location.href='index-main.html?v=5';};
+document.getElementById('btnEnter').onclick=()=>{location.href='midi.html?v=1';};
 </script>
 </body>
 </html>

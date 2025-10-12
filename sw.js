@@ -1,11 +1,11 @@
-// sw.js v5 — network-first html + cache-first assets + skipWaiting hook
-const SW_VERSION = 'v5';
-const CACHE = 'aerial-' + SW_VERSION;
+// sw.js v1 — cache for MIDI build
+const SW_VERSION = 'v1';
+const CACHE = 'aerial-midi-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=5',
-  './index-main.html?v=5',
-  './manifest.json?v=5',
+  './index.html?v=1',
+  './midi.html?v=1',
+  './manifest.json?v=1',
   './icon-192.png',
   './icon-512.png'
 ];
@@ -42,8 +42,4 @@ self.addEventListener('fetch', (e) => {
   } else {
     e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
   }
-});
-
-self.addEventListener('message', (e) => {
-  if (e.data === 'SKIP_WAITING') self.skipWaiting();
 });
