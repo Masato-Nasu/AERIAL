@@ -1,165 +1,142 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>HumTaste × Theremin — v8.2</title>
-<link rel="manifest" href="manifest.json?v=8.2d"/><link rel="icon" href="icon-192.png" sizes="192x192"/>
+<title>SonicWeather BGM + Shake Chime — v8.5</title>
+<link rel="manifest" href="manifest.json?v=8.5"/>
+<link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,'Noto Sans JP',sans-serif}
   main{max-width:1000px;margin:0 auto;padding:14px}
-  .card{background:#12151b;border:1px solid #1f242c;border-radius:14px;padding:14px;margin-bottom:12px;position:relative;overflow:hidden}
+  .card{background:#12151b;border:1px solid #1f242c;border-radius:14px;padding:14px;margin-bottom:12px}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  input[type=range],button,select{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:10px;padding:8px 10px;font-size:14px}
+  input[type=range],button{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:10px;padding:8px 10px;font-size:14px}
   .muted{color:var(--muted);font-size:12px}
   #burst{position:fixed;inset:0;pointer-events:none}
 </style>
 </head><body>
 <main>
   <section class="card">
-    <h1>HumTaste Engine × Theremin <small style="font-weight:400;opacity:.6">v8.2</small></h1>
+    <h1>SonicWeather BGM + Shake Chime <small style="font-weight:400;opacity:.6">v8.5</small></h1>
     <div class="row">
       <button id="start">▶ Start</button>
       <button id="stop" disabled>⏹ Stop</button>
-      <button id="chime">🔔 Chime</button>
-      <label>Master</label><input id="master" type="range" min="0" max="100" value="60"/>
+      <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
+      <span class="muted" id="status">Idle</span>
     </div>
-    <div class="row" style="margin-top:8px">
-      <label>BPM</label><input id="bpm" type="range" min="60" max="150" value="92"/>
-      <label>Key</label><select id="key"><option>C</option><option>G</option><option>D</option></select>
-      <label>Activity</label><input id="activity" type="range" min="0" max="100" value="55"/>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <label>Pitch Range</label><input id="pmin" type="range" min="120" max="500" value="180"/><input id="pmax" type="range" min="500" max="1800" value="960"/>
-      <label>Vibrato</label><input id="vib" type="range" min="0" max="100" value="28"/>
-      <label>Alt Sens</label><input id="alts" type="range" min="80" max="700" value="300"/>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <button id="rec">🎙 Start Recording</button>
-      <button id="recStop" disabled>⏹ Stop Recording</button>
-      <span id="rectime" class="muted">00:00</span>
-      <span class="muted" id="orient">Yaw 0° / Pitch 0° / Roll 0°</span>
-    </div>
-    <p class="muted">テルミン小さめ、HumTaste強化、チャイム+2.5dB（chime.mp3）、Yaw/Pitch/Roll を正弦＋EMAスムージング、Pitch感度×1.5、WAV録音（Worklet）。</p>
+    <p class="muted">マイクは使用しません。時間・光（推定）・動きで音色がゆるやかに変化。端末を<b>振った時だけ</b>チャイムが鳴ります。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
+
 <script>
-// ===== Audio Setup =====
-let audioCtx, masterG, limiter;
-let therOsc, therGain, vibOsc, vibGain, padFilter;
+let audioCtx, masterG, limiter, reverb, padGain, filter, lfo, lfoGain;
+let noiseSrc, noiseFilter, noiseGain;
 let started=false;
-let chimeBuf=null; let chimeGain;
-const CHIME_GAIN = Math.pow(10, 2.5/20); // +2.5 dB
+let chimeBuf=null, chimeGain;
+let recNode, recBuffers=[], recSampleRate=48000, recording=false, timer=null, recStart=0;
+let motionAmt=0, lux=NaN;
+
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start'), stopBtn=document.getElementById('stop');
+const master = document.getElementById('master');
+
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+function pickBaseHzByHour(){
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return 196;   // G3
+  if (h >= 11 && h < 17) return 220;  // A3
+  if (h >= 17 && h < 22) return 174.61; // F3
+  return 155.56; // D#3
+}
+
+function makeImpulseResponse(ctx, duration=2.6, decay=5.0, reverse=false){
+  const rate=ctx.sampleRate, length=rate*duration, impulse=ctx.createBuffer(2,length,rate);
+  for(let ch=0; ch<2; ch++){
+    const data=impulse.getChannelData(ch);
+    for(let i=0;i<length;i++){ const t=reverse?(length-i):i; data[i]=(Math.random()*2-1)*Math.pow(1 - t/length, decay); }
+  }
+  return impulse;
+}
 
 async function setup(){
   if (audioCtx) return;
   audioCtx = new (window.AudioContext||window.webkitAudioContext)({latencyHint:"interactive"});
-
-  // Master + limiter
+  // master + limiter
   masterG = audioCtx.createGain(); masterG.gain.value = parseInt(master.value,10)/100;
   limiter = audioCtx.createDynamicsCompressor();
-  limiter.threshold.value = -8; limiter.knee.value = 12; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.25;
+  limiter.threshold.value=-8; limiter.knee.value=12; limiter.ratio.value=12; limiter.attack.value=0.003; limiter.release.value=0.25;
   masterG.connect(limiter).connect(audioCtx.destination);
 
-  // HumTaste — saw stack into creamy LPF + subtle noise
-  padFilter = audioCtx.createBiquadFilter(); padFilter.type='lowpass'; padFilter.frequency.value = 1800; padFilter.Q.value = 0.7;
-  const padGain = audioCtx.createGain(); padGain.gain.value = 0.9; padFilter.connect(padGain).connect(masterG);
-  [110,220,330].forEach((f,i)=>{
-    const o = audioCtx.createOscillator(); o.type='sawtooth'; o.frequency.value=f;
-    const g = audioCtx.createGain(); g.gain.value = 0.1 * (1 - i*0.25);
-    o.connect(g).connect(padFilter); o.start();
+  // reverb bus
+  reverb = audioCtx.createConvolver(); reverb.buffer = makeImpulseResponse(audioCtx, 2.8, 6.0, true);
+  const revGain = audioCtx.createGain(); revGain.gain.value = 0.25; reverb.connect(revGain).connect(masterG);
+
+  // pad path
+  filter = audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=800;
+  padGain = audioCtx.createGain(); padGain.gain.value = 0.2;
+  padGain.connect(filter); filter.connect(reverb); filter.connect(masterG);
+
+  // gentle LFO
+  lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.1;
+  lfoGain = audioCtx.createGain(); lfoGain.gain.value=200;
+  lfo.connect(lfoGain); lfoGain.connect(filter.frequency); lfo.start();
+
+  // detuned pad oscillators
+  const base = pickBaseHzByHour();
+  [1, 5/4, 3/2, 2].forEach(r=>{
+    const o = audioCtx.createOscillator(); o.type='sawtooth'; o.frequency.value = base*r;
+    const vib = audioCtx.createOscillator(); vib.type='sine'; vib.frequency.value = 0.15 + Math.random()*0.1;
+    const vg = audioCtx.createGain(); vg.gain.value = 1.5 + Math.random()*1; vib.connect(vg).connect(o.frequency); vib.start();
+    const g = audioCtx.createGain(); g.gain.value = 0.08;
+    o.connect(g).connect(padGain); o.start();
   });
-  const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate*2, audioCtx.sampleRate);
-  const ch = noiseBuf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*0.04;
-  const nsrc = audioCtx.createBufferSource(); nsrc.buffer=noiseBuf; nsrc.loop=true;
-  const nfil = audioCtx.createBiquadFilter(); nfil.type='bandpass'; nfil.frequency.value=900; nfil.Q.value=0.5;
-  const ng = audioCtx.createGain(); ng.gain.value=0.18; nsrc.connect(nfil).connect(ng).connect(padFilter); nsrc.start();
 
-  // Theremin small
-  therOsc = audioCtx.createOscillator(); therOsc.type='triangle';
-  therGain = audioCtx.createGain(); therGain.gain.value = 0.012; // small
-  vibOsc  = audioCtx.createOscillator(); vibOsc.type='sine'; vibOsc.frequency.value = 5.2;
-  vibGain = audioCtx.createGain(); vibGain.gain.value = 6; vibOsc.connect(vibGain).connect(therOsc.frequency);
-  therOsc.connect(therGain).connect(masterG);
-  therOsc.start(); vibOsc.start();
+  // soft air noise
+  const noiseBuf = (function(ctx){ const len=ctx.sampleRate*4; const b=ctx.createBuffer(1,len,ctx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<len;i++) d[i]=Math.random()*2-1; return b; })(audioCtx);
+  noiseSrc = audioCtx.createBufferSource(); noiseSrc.buffer = noiseBuf; noiseSrc.loop=true;
+  noiseFilter = audioCtx.createBiquadFilter(); noiseFilter.type='highpass'; noiseFilter.frequency.value=500;
+  noiseGain = audioCtx.createGain(); noiseGain.gain.value=0.02;
+  noiseSrc.connect(noiseFilter).connect(noiseGain).connect(reverb); noiseSrc.start();
 
-  // Chime buffer
-  try{
-    let url='Chime.mp3'; try{ let r=await fetch(url); if(!r.ok) throw 0; var arr=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(arr);}catch(e){ const res=await fetch('chime.mp3'); const arr2=await res.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(arr2);}
-  }catch(e){ console.warn('chime load failed', e); }
-  chimeGain = audioCtx.createGain(); chimeGain.gain.value = CHIME_GAIN; chimeGain.connect(masterG);
+  // chime buffer for shake
+  try{ const r=await fetch('Chime.mp3'); const arr=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(arr); }catch(e){ console.warn('Chime load failed', e); }
+  chimeGain = audioCtx.createGain(); chimeGain.gain.value = Math.pow(10, 2.5/20); chimeGain.connect(masterG);
 
-  // Visibility resume
-  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && audioCtx.state!=='running') audioCtx.resume(); }, {passive:true});
-
+  // recorder tap
   await initRecorder();
-}
-async function start(){ await setup(); await audioCtx.resume(); started=true; startBtn.disabled=true; stopBtn.disabled=false; }
-async function stop(){ if(!audioCtx) return; started=false; startBtn.disabled=false; stopBtn.disabled=true; await audioCtx.suspend(); }
-async function playChime(){ await setup(); if(!chimeBuf) return;
-  const src = audioCtx.createBufferSource(); src.buffer = chimeBuf; src.connect(chimeGain).connect(masterG); src.start();
-  burst();
-}
 
-
-// ===== Device Orientation smoothing (sin + EMA) =====
-const state = { yaw:0, pitch:0, roll:0 };
-const ALPHA = 0.08; // EMA
-const PITCH_SENS = 1.5;
-function wrap180(a){ return a>180? a-360 : a; }
-function angDiff(a,b){ let d=a-b; while(d>180) d-=360; while(d<-180) d+=360; return d; }
-function smoothAngles(a,b){ return b + angDiff(a,b)*ALPHA; }
-function sinMap(deg){ return Math.sin((deg*Math.PI)/180); }
-function handleOrient(e){
-  const yaw180 = wrap180(typeof e.alpha==='number'? e.alpha:0);
-  const pitch = typeof e.beta==='number'? e.beta:0;
-  const roll  = typeof e.gamma==='number'? e.gamma:0;
-
-  state.yaw   = smoothAngles(yaw180, state.yaw);
-  state.pitch = smoothAngles(pitch, state.pitch);
-  state.roll  = smoothAngles(roll, state.roll);
-
-  const sy = sinMap(state.yaw);
-  const sp = sinMap(state.pitch) * PITCH_SENS;
-  const sr = sinMap(state.roll);
-
-  if (therOsc && audioCtx){
-    const base = 440, range = 880;
-    const f = base + (sy*0.4 + sp*0.6)*range;
-    therOsc.frequency.setTargetAtTime(Math.max(80, Math.min(2000, f)), audioCtx.currentTime, 0.03);
-  }
-  orient.textContent = `Yaw ${state.yaw.toFixed(0)}° / Pitch ${state.pitch.toFixed(0)}° / Roll ${state.roll.toFixed(0)}°`;
-}
-function handleMotion(e){
-  const a = e.accelerationIncludingGravity; if(!a) return;
-  const mag = Math.hypot(a.x||0,a.y||0,a.z||0);
-  const now = performance.now();
-  if(mag > 28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake = now; playChime(); }
-}
-async function enableSensors(){
+  // motion permission & handler (shake only)
   try{
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+    if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
       await DeviceMotionEvent.requestPermission().catch(()=>{});
     }
   }catch(e){}
-  addEventListener('deviceorientation', handleOrient, true);
-  addEventListener('devicemotion', handleMotion, true);
-}
-enableSensors();
+  window.addEventListener('devicemotion', (ev)=>{
+    const a = ev.accelerationIncludingGravity; if(!a) return;
+    const mag = Math.hypot(a.x||0,a.y||0,a.z||0);
+    const now = performance.now();
+    if (mag > 28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake = now; playChime(); burst(); }
+    motionAmt = Math.min(1, mag/20);
+  }, {passive:true});
 
-// ===== WAV Recorder via AudioWorklet =====
-let recNode, recBuffers=[], recSampleRate=48000, recording=false, timer=null, recStart=0;
+  // light fallback (no ALS): estimate by hour
+  const h = new Date().getHours();
+  lux = (h >= 7 && h <= 17) ? 500 : 50;
+
+  // start viz tick
+  tick();
+}
+
+async function start(){ await setup(); await audioCtx.resume(); started=true; startBtn.disabled=true; stopBtn.disabled=false; statusEl.textContent='Playing'; }
+async function stop(){ if(!audioCtx) return; started=false; startBtn.disabled=false; stopBtn.disabled=true; await audioCtx.suspend(); statusEl.textContent='Stopped'; }
+
+function playChime(){ if(!chimeBuf) return; const src=audioCtx.createBufferSource(); src.buffer=chimeBuf; src.connect(chimeGain); src.start(); }
+
+/* Recorder */
 async function initRecorder(){
-  const code = `
-    class MixTap extends AudioWorkletProcessor{
-      process(inputs, outputs, params){
-        const ch0 = inputs[0]?.[0];
-        if (ch0){ this.port.postMessage(ch0); }
-        return true;
-      }
-    }
-    registerProcessor('mix-tap', MixTap);
-  `;
+  const code = `class MixTap extends AudioWorkletProcessor{process(inputs){const ch0=inputs[0]?.[0];if(ch0){this.port.postMessage(ch0);}return true;}}registerProcessor('mix-tap',MixTap);`;
   const blob = new Blob([code], {type:'application/javascript'});
   const url = URL.createObjectURL(blob);
   await audioCtx.audioWorklet.addModule(url);
@@ -180,169 +157,37 @@ function muxWAV(pcm16, sr){ const buf=new ArrayBuffer(44+pcm16.byteLength); cons
 function startRec(){
   if (!audioCtx) return;
   recBuffers.length=0; recSampleRate = audioCtx.sampleRate; recording=true;
-  rec.disabled=true; recStop.disabled=false;
+  const recBtn = document.getElementById('rec'); const recStopBtn = document.getElementById('recStop');
+  recBtn.disabled=true; recStopBtn.disabled=false;
   recStart = performance.now();
   timer = setInterval(()=>{ const s=Math.floor((performance.now()-recStart)/1000); const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); rectime.textContent=m+':'+ss; }, 500);
 }
 function stopRec(){
-  recording=false; rec.disabled=false; recStop.disabled=true; clearInterval(timer); rectime.textContent='00:00';
+  recording=false; const recBtn = document.getElementById('rec'); const recStopBtn = document.getElementById('recStop');
+  recBtn.disabled=false; recStopBtn.disabled=true; clearInterval(timer); rectime.textContent='00:00';
   const mono = concatFloat32(recBuffers); const pcm16 = f32ToPCM16(mono); const wav = muxWAV(pcm16, recSampleRate);
-  const a=document.createElement('a'); const ts=new Date().toISOString().replace(/[:.]/g,'-'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v8_2_'+ts+'.wav'; a.click();
+  const a=document.createElement('a'); const ts=new Date().toISOString().replace(/[:.]/g,'-'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v8_5_'+ts+'.wav'; a.click();
 }
 
-
-// ===== Ambient Engine (Sonic Weather–style) =====
-let reverb, padGain, micGain, filter, lfo, lfoGain, micAnalyser;
-let micStream = null;
-let ambientStarted = false;
-let lux = 200; // fallback
-let motionAmt = 0;
-
-function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-function makeImpulseResponse(ctx, duration=2.8, decay=6.0, reverse=false) {
-  const rate = audioCtx.sampleRate;
-  const length = rate * duration;
-  const impulse = audioCtx.createBuffer(2, length, rate);
-  for (let ch=0; ch<2; ch++) {
-    const data = impulse.getChannelData(ch);
-    for (let i=0; i<length; i++) {
-      const t = reverse ? (length - i) : i;
-      data[i] = (Math.random()*2 - 1) * Math.pow(1 - t/length, decay);
-    }
-  }
-  return impulse;
-}
-function makeNoise(ctx, duration=4){
-  const len = ctx.sampleRate * duration;
-  const b = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = b.getChannelData(0);
-  for (let i=0;i<len;i++){ d[i] = Math.random()*2-1; }
-  return b;
-}
-function pickBaseHzByHour(){
-  const h = new Date().getHours();
-  if (h >= 5 && h < 11) return 196;   // G3
-  if (h >= 11 && h < 17) return 220;  // A3
-  if (h >= 17 && h < 22) return 174.61; // F3
-  return 155.56; // D#3
-}
-
-async function startAmbient(){
-  if (!audioCtx) return;
-  if (ambientStarted) return;
-  ambientStarted = true;
-
-  // Reverb + master routing (reuse masterG)
-  reverb = audioCtx.createConvolver();
-  reverb.buffer = makeImpulseResponse(audioCtx, 2.8, 6.0, true);
-  const revGain = audioCtx.createGain(); revGain.gain.value = 0.25; reverb.connect(revGain).connect(masterG);
-
-  filter = audioCtx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 800;
-  padGain = audioCtx.createGain(); padGain.gain.value = 0.2;
-  padGain.connect(filter).connect(reverb);
-  filter.connect(masterG);
-
-  // LFO movement
-  lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.1;
-  lfoGain = audioCtx.createGain(); lfoGain.gain.value = 200;
-  lfo.connect(lfoGain); lfoGain.connect(filter.frequency); lfo.start();
-
-  // Detuned pad cluster
-  const base = pickBaseHzByHour();
-  const ratios = [1, 5/4, 3/2, 2];
-  ratios.forEach(r=>{
-    const o = audioCtx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.value = base * r;
-    const vib = audioCtx.createOscillator(); vib.type='sine'; vib.frequency.value = 0.15 + Math.random()*0.1;
-    const vg = audioCtx.createGain(); vg.gain.value = 1.5 + Math.random()*1;
-    vib.connect(vg).connect(o.frequency); vib.start();
-    const g = audioCtx.createGain(); g.gain.value = 0.08;
-    o.connect(g).connect(padGain);
-    o.start();
-  });
-
-  // Air noise
-  const noise = audioCtx.createBufferSource();
-  noise.buffer = makeNoise(audioCtx, 4);
-  const nFilter = audioCtx.createBiquadFilter(); nFilter.type='highpass'; nFilter.frequency.value = 500;
-  const nGain = audioCtx.createGain(); nGain.gain.value = 0.02;
-  noise.loop = true;
-  noise.connect(nFilter).connect(nGain).connect(reverb);
-  noise.start();
-
-  // Mic blend
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
-    micStream = stream;
-    const mic = audioCtx.createMediaStreamSource(stream);
-    micGain = audioCtx.createGain(); micGain.gain.value = 0.10;
-    mic.connect(micGain);
-    micGain.connect(reverb);
-    micGain.connect(masterG);
-
-    micAnalyser = audioCtx.createAnalyser(); micAnalyser.fftSize = 1024;
-    const split = audioCtx.createGain(); mic.connect(split); split.connect(micAnalyser);
-  } catch (e) { console.warn('Mic error', e); }
-
-  // Motion permission / mapping
-  try{
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-      await DeviceMotionEvent.requestPermission().catch(()=>{});
-    }
-  }catch(e){}
-  window.addEventListener('devicemotion', (ev)=>{
-    const ax = ev.accelerationIncludingGravity?.x || 0;
-    const ay = ev.accelerationIncludingGravity?.y || 0;
-    const az = ev.accelerationIncludingGravity?.z || 0;
-    motionAmt = Math.min(1, Math.sqrt(ax*ax + ay*ay + az*az) / 20);
-  }, {passive:true});
-
-  // AmbientLightSensor if available
-  if ('AmbientLightSensor' in window) {
-    try {
-      const sensor = new AmbientLightSensor();
-      sensor.addEventListener('reading', () => { lux = sensor.illuminance; });
-      sensor.start();
-    } catch(e){}
-  } else {
-    const h = new Date().getHours();
-    lux = (h >= 7 && h <= 17) ? 500 : 50;
-  }
-
-  // Couple to existing analyser loop via animation frame — reuse burst canvas as indicator
-  function tick(){
-    if (!ambientStarted) return;
-    requestAnimationFrame(tick);
-    if (!audioCtx) return;
-    // map mic/ambient to parameters
-    let rms = 0.02;
-    if (micAnalyser){
-      const arr = new Uint8Array(micAnalyser.fftSize/2);
-      micAnalyser.getByteFrequencyData(arr);
-      let sum=0; for(let i=0;i<arr.length;i++) sum += arr[i]*arr[i];
-      rms = Math.sqrt(sum/arr.length)/255;
-    }
-    const tgtCut = clamp(300 + rms*4000 + (lux/1000)*800, 200, 6000);
-    filter.frequency.linearRampToValueAtTime(tgtCut, audioCtx.currentTime + 0.2);
-    if (padGain) padGain.gain.linearRampToValueAtTime(0.12 + rms*0.18 + motionAmt*0.1, audioCtx.currentTime + 0.1);
-    if (lfo) lfo.frequency.linearRampToValueAtTime(0.05 + motionAmt*0.6 + (lux>200?0.05:0), audioCtx.currentTime + 0.2);
-  }
-  tick();
-}
-
-async function stopAmbient(){
-  ambientStarted = false;
-  if (micStream){ try{ micStream.getTracks().forEach(t=>t.stop()); }catch(e){} micStream=null; }
-}
-
-// ===== Burst visual (subtle) =====
+/* Viz */
 const cvs = document.getElementById('burst'), g = cvs.getContext('2d'); let burstT=0;
 function fit(){ const r=window.devicePixelRatio||1; cvs.width=innerWidth*r; cvs.height=innerHeight*r; cvs.style.width=innerWidth+'px'; cvs.style.height=innerHeight+'px'; }
 addEventListener('resize', fit); fit();
 function burst(){ burstT = performance.now(); }
-(function loop(){
-  requestAnimationFrame(loop);
+function tick(){
+  requestAnimationFrame(tick);
+  // map motion/lux to filter + pad gain + lfo rate
+  if (filter && audioCtx){
+    const tgtCut = clamp(300 + (lux/1000)*800 + motionAmt*4000, 200, 6000);
+    filter.frequency.linearRampToValueAtTime(tgtCut, audioCtx.currentTime + 0.2);
+  }
+  if (padGain && audioCtx){
+    padGain.gain.linearRampToValueAtTime(0.12 + motionAmt*0.18 + (lux>200?0.04:0), audioCtx.currentTime + 0.1);
+  }
+  if (lfo && audioCtx){
+    lfo.frequency.linearRampToValueAtTime(0.05 + motionAmt*0.6 + (lux>200?0.05:0), audioCtx.currentTime + 0.2);
+  }
+  // draw ring when burst
   const now = performance.now();
   const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0);
   g.clearRect(0,0,cvs.width,cvs.height);
@@ -355,53 +200,22 @@ function burst(){ burstT = performance.now(); }
   g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI*2);
   g.strokeStyle = 'rgba(255,255,255,'+a.toFixed(3)+')';
   g.lineWidth = 2 + 6*(1-a); g.stroke();
-})();
+}
 
-// ===== UI wiring =====
-const startBtn = document.getElementById('start'), stopBtn=document.getElementById('stop');
-const chimeBtn = document.getElementById('chime');
-const master = document.getElementById('master');
-const bpmEl = document.getElementById('bpm');
-const rec = document.getElementById('rec'), recStop=document.getElementById('recStop'), rectime=document.getElementById('rectime'), orient=document.getElementById('orient');
+/* UI */
+const rec = document.createElement('button'); rec.id='rec'; rec.textContent='🎙 Start Recording';
+const recStop = document.createElement('button'); recStop.id='recStop'; recStop.textContent='⏹ Stop Recording'; recStop.disabled=true;
+const rectime = document.createElement('span'); rectime.id='rectime'; rectime.className='muted'; rectime.style.marginLeft='8px'; rectime.textContent='00:00';
+document.querySelector('.row').appendChild(rec); document.querySelector('.row').appendChild(recStop); document.querySelector('.row').appendChild(rectime);
 
-startBtn.onclick = async ()=>{ await start(); await startAmbient(); };
-stopBtn.onclick = async ()=>{ await stop(); await stopAmbient(); };
-chimeBtn.onclick = async ()=>{ await playChime(); };
-
-master.oninput = e=>{ if(masterG) masterG.gain.value = parseInt(e.target.value,10)/100; };
+startBtn.onclick = async ()=>{ await start(); };
+stopBtn.onclick  = async ()=>{ await stop(); };
+master.oninput   = e=>{ if(masterG) masterG.gain.value = parseInt(e.target.value,10)/100; };
+rec.onclick      = startRec;
+recStop.onclick  = stopRec;
 </script>
 
 <script>
-window.APP_VERSION = (window.APP_VERSION||'8.2d');
-(async function hardResetIfNeeded() {
-  try {
-    // Persist current version in localStorage; if differs, nuke SW + caches
-    const k = 'AERIAL_APP_VERSION';
-    const prev = localStorage.getItem(k);
-    if (prev !== APP_VERSION) {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        for (const r of regs) { try { await r.unregister(); } catch{} }
-      }
-      if ('caches' in self) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
-      }
-      localStorage.setItem(k, APP_VERSION);
-      // Add a tiny delay then reload once to pick up new SW
-      setTimeout(() => location.reload(), 150);
-    }
-  } catch(e) { /* ignore */ }
-})();
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION + '&t=' + Date.now());
-      if (reg && reg.waiting) { reg.waiting.postMessage({type:'SKIP_WAITING'}); }
-      navigator.serviceWorker.addEventListener('controllerchange', () => { /* new SW active */ });
-    } catch(e) { /* ignore */ }
-  });
-}
+// SW register handled from index.html; keep version in sync
 </script>
-
 </body></html>
