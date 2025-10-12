@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v10.0 — Player V101</title>
+<link rel="manifest" href="./manifest.json?v=100"/>
+<link rel="icon" href="../icon-192.png" sizes="192x192"/>
+<style>
+  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
+  main{max-width:980px;margin:0 auto;padding:14px}
+  .card{background:#12151b;border:1px solid #1f242c;border-radius:12px;padding:12px;margin:12px 0}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button,input,select{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:8px 10px}
+  .muted{color:var(--muted);font-size:13px}
+  #banner{padding:8px 10px;border-radius:10px;background:#182033;border:1px solid #2a3a55;margin-bottom:10px}
+  #unlock{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:10}
+  #unlock.hide{display:none}
+</style>
+</head><body>
+<main>
+  <div id="banner">✅ Loaded: <b>V101</b>（これが見えたら“更新できています”）</div>
+
+  <section class="card">
+    <h1 style="margin:0 0 8px">AERIAL v10.0 — Player（V101）</h1>
+    <div class="row">
+      <label>Master</label><input id="master" type="range" min="0" max="100" value="80"/>
+      <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="70"/>
+      <button id="btnUnlock">▶ 音を有効化</button>
+      <button id="btnBeep">Beep</button>
+      <button id="btnChime">Chime</button>
+    </div>
+    <p class="muted">タップで開始。Beepで解錠確認、Chimeは <code>../Chime.mp3</code> を再生。</p>
+  </section>
+</main>
+
+<div id="unlock"><div>
+  <p style="margin:0 0 8px">タップして開始（V101）</p>
+  <button id="btnOverlay">▶ Tap to Start</button>
+</div></div>
+
+<script>
+let audioCtx, masterG, therOsc, therGain, chimeBuf;
+
+const masterEl = document.getElementById('master');
+const thgainEl = document.getElementById('thgain');
+const unlockEls = [document.getElementById('btnUnlock'), document.getElementById('btnOverlay')];
+const btnBeep = document.getElementById('btnBeep');
+const btnChime = document.getElementById('btnChime');
+const overlay = document.getElementById('unlock');
+
+function hideUnlock(){ overlay.classList.add('hide'); }
+
+async function setup(){
+  if(audioCtx) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  audioCtx = new Ctx({latencyHint:'interactive'});
+
+  masterG = audioCtx.createGain();
+  masterG.gain.value = parseInt(masterEl.value,10)/100;
+  masterEl.oninput = ()=> masterG.gain.value = parseInt(masterEl.value,10)/100;
+
+  therOsc = audioCtx.createOscillator(); therOsc.type = 'sine';
+  therGain = audioCtx.createGain(); updateTher();
+  thgainEl.oninput = updateTher;
+  therOsc.connect(therGain).connect(masterG).connect(audioCtx.destination);
+  therOsc.start();
+
+  try {
+    const ab = await (await fetch('../Chime.mp3', {cache:'no-store'})).arrayBuffer();
+    chimeBuf = await audioCtx.decodeAudioData(ab);
+  } catch(e) {}
+}
+function updateTher(){
+  if(!therGain) return;
+  therGain.gain.value = parseInt(thgainEl.value,10)/100 * 0.08;
+}
+
+async function unlock(){
+  await setup();
+  try{ await audioCtx.resume(); }catch(e){}
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  g.gain.value = 0.15; o.frequency.value = 660;
+  o.connect(g).connect(audioCtx.destination); o.start();
+  o.stop(audioCtx.currentTime + 0.08);
+  hideUnlock();
+}
+
+unlockEls.forEach(el => el.onclick = unlock);
+btnBeep.onclick = async ()=>{
+  if(!audioCtx) await unlock();
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  g.gain.value = 0.2; o.frequency.value = 550;
+  o.connect(g).connect(audioCtx.destination); o.start();
+  o.stop(audioCtx.currentTime + 0.25);
+};
+btnChime.onclick = async ()=>{
+  if(!audioCtx) await unlock();
+  if(!chimeBuf){ return; }
+  const s = audioCtx.createBufferSource(); s.buffer = chimeBuf;
+  s.connect(audioCtx.destination); s.start();
+};
+</script>
+</body></html>
