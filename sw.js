@@ -1,11 +1,11 @@
-// sw.js v2 — Hybrid build
-const SW_VERSION = 'v2';
-const CACHE = 'aerial-hybrid-' + SW_VERSION;
+// sw.js v6 — Deep Ambient
+const SW_VERSION = 'v6';
+const CACHE = 'aerial-deep-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=5',
-  './hybrid.html?v=5',
-  './manifest.json?v=5',
+  './index.html?v=6',
+  './deep.html?v=6',
+  './manifest.json?v=6',
   './icon-192.png',
   './icon-512.png'
 ];
@@ -42,4 +42,8 @@ self.addEventListener('fetch', (e) => {
   } else {
     e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
   }
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
 });
