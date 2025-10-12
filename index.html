@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-  <title>AERIAL v9.4 — Hard Reset</title>
+  <title>AERIAL 9.4.1 — Hard Reset</title>
   <link rel="manifest" href="manifest.json?v=9.4"/>
   <link rel="icon" href="icon-192.png" sizes="192x192"/>
   <style>
@@ -16,8 +16,8 @@
 <body>
   <div class="wrap">
     <div style="text-align:center">
-      <h1 style="font-weight:500;margin:0 0 12px">AERIAL v9.4 — Hard Reset</h1>
-      <p><a id="launch" href="app-v94.html?v=9.4">▶ Launch</a></p>
+      <h1 style="font-weight:500;margin:0 0 12px">AERIAL 9.4.1 — Hard Reset</h1>
+      <p><a id="launch" href="app-v941.html?v=9.4">▶ Launch</a></p>
       <p class="muted" id="status">Resetting old Service Workers & caches…</p>
     </div>
   </div>
@@ -39,7 +39,7 @@
       // Register the new SW with a brand-new filename (hard cache bust)
       if ('serviceWorker' in navigator) {
         try {
-          await navigator.serviceWorker.register('./sw-v9-4.js?v=9.4&ts=20251012161235', { scope: './' });
+          await navigator.serviceWorker.register('./sw-v9-41.js?v=9.4&ts=20251012161235', { scope: './' });
         } catch (e) {}
       }
       document.getElementById('status').textContent = 'Ready.';

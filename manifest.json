@@ -1,7 +1,7 @@
 {
   "name": "AERIAL v9.4 — Hard Reset",
   "short_name": "AERIAL",
-  "start_url": "./index.html?v=9.4",
+  "start_url": "./index.html?v=9.4.1",
   "display": "standalone",
   "background_color": "#0b0d11",
   "theme_color": "#0b0d11",
