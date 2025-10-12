@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Audio Diagnostics v9.5</title>
+<style>
+  body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif;padding:16px}
+  button{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:10px 12px;margin:6px 6px 6px 0}
+  .row{margin:10px 0}
+  .muted{color:#8a8f98;font-size:13px}
+</style>
+</head><body>
+<h1>🧪 Audio Diagnostics v9.5</h1>
+<p class="muted">端末・ブラウザの設定による無音を切り分けます。順に試してください。</p>
+<div class="row"><button id="btnStart">▶ Start (AudioContext 解放)</button> <span id="state" class="muted">state: (未初期化)</span></div>
+<div class="row"><button id="btnSine">🎵 440Hz（0.8秒）</button><button id="btnNoise">📻 Noise Burst（0.5秒）</button><button id="btnChime">🔔 Chime.mp3</button></div>
+<div class="row muted">ヒント：Androidはメディア音量／iOSはサイレントスイッチ、サイトの音声許可を確認。</div>
+<script>
+let ctx=null, master=null, chime=null;
+const st=document.getElementById('state');
+function setState(s){ st.textContent='state: '+s; }
+
+async function boot(){
+  if(ctx) return;
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  master=ctx.createGain(); master.gain.value=0.3; master.connect(ctx.destination);
+  setState(ctx.state);
+  try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chime=await ctx.decodeAudioData(ab); }catch(e){ console.warn(e); }
+}
+
+async function resume(){
+  await boot();
+  try{ await ctx.resume(); const s=ctx.createBufferSource(); s.buffer=ctx.createBuffer(1,1,ctx.sampleRate); s.connect(ctx.destination); s.start(0); }catch(e){}
+  setState(ctx.state);
+}
+
+document.getElementById('btnStart').onclick=resume;
+
+document.getElementById('btnSine').onclick=async ()=>{ await resume(); const o=ctx.createOscillator(); const g=ctx.createGain(); g.gain.value=0.2; o.type='sine'; o.frequency.value=440; o.connect(g).connect(master); o.start(); o.stop(ctx.currentTime+0.8); };
+
+document.getElementById('btnNoise').onclick=async ()=>{ await resume(); const b=ctx.createBuffer(1, ctx.sampleRate*0.5, ctx.sampleRate); const ch=b.getChannelData(0); for(var i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=ctx.createBufferSource(); s.buffer=b; const g=ctx.createGain(); g.gain.value=0.25; s.connect(g).connect(master); s.start(); };
+
+document.getElementById('btnChime').onclick=async ()=>{ await resume(); if(!chime) return; const s=ctx.createBufferSource(); s.buffer=chime; s.connect(master); s.start(); };
+</script>
+</body></html>

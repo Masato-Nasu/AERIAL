@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v9.5 — Launch</title>
+<link rel="icon" href="icon-192.png" sizes="192x192"/>
+<style>
+  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
+  main{max-width:980px;margin:0 auto;padding:14px}
+  .card{background:#12151b;border:1px solid #1f242c;border-radius:12px;padding:12px;margin:12px 0}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button,input,select{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:8px 10px}
+  .muted{color:var(--muted);font-size:13px}
+  #burst{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #unlock{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:10}
+  #unlock > div{background:#0f1320;border:1px solid #253043;border-radius:14px;padding:16px 18px;text-align:center;max-width:520px}
+  #unlock p{margin:0 0 10px}
+</style>
+</head><body>
+<main>
+  <section class="card">
+    <h1 style="margin:0 0 8px">AERIAL v9.5 — Launch</h1>
+    <div class="row">
+      <button id="btnPause">⏸ Pause</button>
+      <label>Master</label><input id="master" type="range" min="0" max="100" value="85"/>
+      <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="70"/>
+      <button id="btnTone">🎵 440Hz テスト</button>
+      <button id="btnChime">🔔 チャイム</button>
+    </div>
+    <p class="muted">最初に「開始」ボタンを押してください（ブラウザの自動再生ブロック回避）。</p>
+  </section>
+</main>
+<canvas id="burst"></canvas>
+<div id="unlock"><div>
+  <p>音声の権限を解放する必要があります。<br>「▶ 開始」を押すと音が出ます。</p>
+  <button id="btnUnlock">▶ 開始（音を解放）</button>
+  <p class="muted" id="state">state: (未初期化)</p>
+</div></div>
+<script>
+let audioCtx=null, masterG, limiter;
+let padNodes=[], padGain, filter, lfo, lfoGain, noiseSrc, noiseGain;
+let therOsc, therGain;
+let chimeBuf=null, chimeGain;
+
+const masterEl=document.getElementById('master'), thgainEl=document.getElementById('thgain');
+const btnPause=document.getElementById('btnPause');
+const btnUnlock=document.getElementById('btnUnlock'); const overlay=document.getElementById('unlock');
+const btnTone=document.getElementById('btnTone'); const btnChime=document.getElementById('btnChime');
+const stateEl=document.getElementById('state');
+
+function setState(s){ stateEl.textContent='state: '+s; }
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function pickBaseHzByHour(){const h=new Date().getHours(); if(h>=5&&h<11)return 196; if(h>=11&&h<17)return 220; if(h>=17&&h<22)return 174.61; return 155.56;}
+function makeImpulseResponse(ctx,duration=2.6,decay=5.5,reverse=false){const rate=ctx.sampleRate,length=rate*duration,imp=ctx.createBuffer(2,length,rate);for(let ch=0;ch<2;ch++){const data=imp.getChannelData(ch);for(let i=0;i<length;i++){const t=reverse?(length-i):i;data[i]=(Math.random()*2-1)*Math.pow(1-t/length,decay);}}return imp;}
+
+async function setup(){ 
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
+  setState(audioCtx.state);
+  masterG=audioCtx.createGain(); masterG.gain.value=parseInt(masterEl.value,10)/100;
+  limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-8;limiter.knee.value=12;limiter.ratio.value=12;limiter.attack.value=0.003;limiter.release.value=0.25;
+  masterG.connect(limiter).connect(audioCtx.destination);
+
+  const reverb=(function(){const rv=audioCtx.createConvolver(); rv.buffer=makeImpulseResponse(audioCtx,2.6,5.5,true); return rv;})();
+  const revOut=audioCtx.createGain(); revOut.gain.value=0.25; reverb.connect(revOut).connect(masterG);
+  filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=800;
+  padGain=audioCtx.createGain(); padGain.gain.value=0.18; padGain.connect(filter); filter.connect(reverb); filter.connect(masterG);
+  lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.09; lfoGain=audioCtx.createGain(); lfoGain.gain.value=200; lfo.connect(lfoGain); lfoGain.connect(filter.frequency); lfo.start();
+  const base=pickBaseHzByHour(); const ratios=[1,5/4,3/2,2];
+  for(let r of ratios){ const o=audioCtx.createOscillator(); o.type='sawtooth'; o.frequency.value=base*r*(1+(Math.random()-0.5)*0.01);
+    const vib=audioCtx.createOscillator(); vib.type='sine'; vib.frequency.value=0.12+Math.random()*0.12; const vg=audioCtx.createGain(); vg.gain.value=1.2+Math.random()*0.8; vib.connect(vg).connect(o.frequency); vib.start();
+    const g=audioCtx.createGain(); g.gain.value=0.09; o.connect(g); g.connect(padGain); o.start(); padNodes.push(o,vib,g); }
+  const noiseBuf=audioCtx.createBuffer(1,audioCtx.sampleRate*4,audioCtx.sampleRate); const ch=noiseBuf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*0.9;
+  noiseSrc=audioCtx.createBufferSource(); noiseSrc.buffer=noiseBuf; noiseSrc.loop=true; const nFilter=audioCtx.createBiquadFilter(); nFilter.type='highpass'; nFilter.frequency.value=500; noiseGain=audioCtx.createGain(); noiseGain.gain.value=0.02; noiseSrc.connect(nFilter).connect(noiseGain).connect(revOut); noiseSrc.start();
+
+  therOsc=audioCtx.createOscillator(); therOsc.type='sine'; therGain=audioCtx.createGain(); therGain.gain.value=parseInt(thgainEl.value,10)/100*0.06; therOsc.connect(therGain).connect(masterG); therOsc.start();
+
+  try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){ console.warn('chime load fail', e); }
+  chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
+
+  window.addEventListener('pointermove',(ev)=>{const w=innerWidth,h=innerHeight;const nx=(ev.clientX/w)*2-1;const ny=(ev.clientY/h)*2-1;const base=220, range=880; const f=base+((nx*0.45+ny*0.55))*range; therOsc.frequency.setTargetAtTime(Math.max(40,Math.min(3000,f)),audioCtx.currentTime,0.03); },{passive:true});
+}
+
+function playTone(){ if(!audioCtx) return; const osc=audioCtx.createOscillator(); const g=audioCtx.createGain(); g.gain.value=0.15; osc.type='sine'; osc.frequency.value=440; osc.connect(g).connect(masterG); osc.start(); osc.stop(audioCtx.currentTime+0.5);}
+function playChime(){ if(!chimeBuf||!audioCtx) return; const s=audioCtx.createBufferSource(); s.buffer=chimeBuf; s.connect(chimeGain); s.start(); }
+window.playChime = playChime;
+
+async function unlockNow(){ try{ if(!audioCtx) await setup(); await audioCtx.resume(); const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start(0); }catch(e){ console.warn(e); } finally{ stateEl.textContent='state: '+(audioCtx?audioCtx.state:'noctx'); overlay.style.display='none'; } }
+btnUnlock.onclick = unlockNow;
+btnTone.onclick = ()=>{ unlockNow().then(playTone); };
+btnChime.onclick = ()=>{ unlockNow().then(playChime); };
+btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } stateEl.textContent='state: '+audioCtx.state; };
+</script>
+</body></html>
