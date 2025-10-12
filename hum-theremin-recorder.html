@@ -2,7 +2,7 @@
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>HumTaste × Theremin — v8.2</title>
-<link rel="manifest" href="manifest.json?v=8.2c"/><link rel="icon" href="icon-192.png" sizes="192x192"/>
+<link rel="manifest" href="manifest.json?v=8.2d"/><link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,'Noto Sans JP',sans-serif}
@@ -372,7 +372,7 @@ master.oninput = e=>{ if(masterG) masterG.gain.value = parseInt(e.target.value,1
 </script>
 
 <script>
-window.APP_VERSION = (window.APP_VERSION||'8.2c');
+window.APP_VERSION = (window.APP_VERSION||'8.2d');
 (async function hardResetIfNeeded() {
   try {
     // Persist current version in localStorage; if differs, nuke SW + caches

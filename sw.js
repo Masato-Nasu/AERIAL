@@ -1,11 +1,11 @@
 // sw.js v8.2a — AERIAL
-const SW_VERSION = 'v8.2c';
+const SW_VERSION = 'v8.2d';
 const CACHE = 'aerial-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=8.2c',
-  './hum-theremin-recorder.html?v=8.2c',
-  './manifest.json?v=8.2c',
+  './index.html?v=8.2d',
+  './hum-theremin-recorder.html?v=8.2d',
+  './manifest.json?v=8.2d',
   './icon-192.png',
   './icon-512.png',
   './Chime.mp3'
