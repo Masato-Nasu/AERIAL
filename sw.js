@@ -1,11 +1,11 @@
-// sw.js v73 — Abstract Theremin
-const SW_VERSION = 'v73';
+// sw.js v731 — Abstract Theremin (unlock/diagnostics)
+const SW_VERSION = 'v731';
 const CACHE = 'aerial-abstract-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=73',
-  './abstract-theremin.html?v=73',
-  './manifest.json?v=73',
+  './index.html?v=731',
+  './abstract-theremin.html?v=731',
+  './manifest.json?v=731',
   './icon-192.png',
   './icon-512.png',
   './chime.mp3'
