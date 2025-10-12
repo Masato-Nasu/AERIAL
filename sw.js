@@ -1,11 +1,11 @@
-// sw.js v731 — Abstract Theremin (unlock/diagnostics)
-const SW_VERSION = 'v731';
-const CACHE = 'aerial-abstract-' + SW_VERSION;
+// sw.js v80 — HumTaste × Theremin
+const SW_VERSION = 'v80';
+const CACHE = 'aerial-humtheremin-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=731',
-  './abstract-theremin.html?v=731',
-  './manifest.json?v=731',
+  './index.html?v=80',
+  './hum-theremin.html?v=80',
+  './manifest.json?v=80',
   './icon-192.png',
   './icon-512.png',
   './chime.mp3'
