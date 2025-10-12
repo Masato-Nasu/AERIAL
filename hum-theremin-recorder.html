@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v8.1 — HumTaste × Theremin + WAV Recorder</title>
+<link rel="manifest" href="manifest.json?v=81"/><link rel="icon" href="icon-192.png" sizes="192x192"/>
+<style>
+  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,'Noto Sans JP',sans-serif}
+  main{max-width:1000px;margin:0 auto;padding:14px}
+  .card{background:#12151b;border:1px solid #1f242c;border-radius:14px;padding:14px;margin-bottom:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input[type=range],button,select{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:10px;padding:8px 10px;font-size:14px}
+  .muted{color:var(--muted);font-size:12px}
+</style>
+</head><body>
+<main>
+  <section class="card">
+    <h1>HumTaste Engine × Theremin</h1>
+    <div class="row">
+      <button id="start">▶ Start</button>
+      <button id="stop" disabled>⏹ Stop</button>
+      <button id="test">♪ Test</button>
+      <label>Master</label><input id="master" type="range" min="0" max="100" value="60"/>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>BPM</label><input id="bpm" type="range" min="60" max="150" value="92"/>
+      <label>Key</label><select id="key"><option>C</option><option>G</option><option>D</option></select>
+      <label>Activity</label><input id="activity" type="range" min="0" max="100" value="55"/>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>Pitch Range</label><input id="pmin" type="range" min="120" max="500" value="180"/><input id="pmax" type="range" min="500" max="1800" value="960"/>
+      <label>Vibrato</label><input id="vib" type="range" min="0" max="100" value="28"/>
+      <label>Alt Sens</label><input id="alts" type="range" min="80" max="700" value="300"/>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="rec">🎙 Start Recording</button>
+      <button id="recStop" disabled>⏹ Stop Recording</button>
+      <span id="rectime" class="muted">00:00</span>
+    </div>
+    <p class="muted">v8.1: テルミンは小さめ、音楽は+6dB、チャイムは大きめ。録音はWAV。</p>
+  </section>
+</main>
+<script>
+let audioCtx, masterG, limiter;
+let therOsc, therGain, vibOsc, vibGain, lp;
+let started=false; let recChunks=[]; let recStart=0; let timer=null;
+async function setup(){
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterG = audioCtx.createGain(); masterG.gain.value = parseInt(master.value,10)/100;
+  limiter = audioCtx.createDynamicsCompressor();
+  limiter.threshold.value = -8; limiter.knee.value = 12; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.25;
+  masterG.connect(limiter).connect(audioCtx.destination);
+  // Theremin
+  therOsc = audioCtx.createOscillator(); therOsc.type='sine';
+  vibOsc  = audioCtx.createOscillator(); vibOsc.type='sine'; vibOsc.frequency.value = 5;
+  vibGain = audioCtx.createGain(); vibGain.gain.value = 0; vibOsc.connect(vibGain).connect(therOsc.frequency);
+  lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 2400;
+  therGain = audioCtx.createGain(); therGain.gain.value = 0.02;
+  therOsc.connect(lp).connect(therGain).connect(masterG);
+  therOsc.start(); vibOsc.start();
+}
+function noteHz(n){ return 440*Math.pow(2,(n-69)/12); }
+function tone(t, f, g=0.1, d=0.1){
+  const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.value=f;
+  const G=audioCtx.createGain(); G.gain.value=0; o.connect(G).connect(masterG);
+  G.gain.linearRampToValueAtTime(g, t+0.01); G.gain.exponentialRampToValueAtTime(0.0008, t+d);
+  o.start(t); o.stop(t+d+0.02);
+}
+function schedule(){
+  const bpm = parseInt(bpmEl.value,10), spb = 60/bpm;
+  let t = audioCtx.currentTime;
+  for(let i=0;i<16;i++){
+    const step = i%16;
+    if(step%4===0) tone(t, 60, 0.2*1.8, 0.02);
+    if(step%8===0) tone(t, 220, 0.06*1.8, 0.18);
+    t += spb/4;
+  }
+}
+const startBtn = document.getElementById('start'), stopBtn=document.getElementById('stop'), testBtn=document.getElementById('test');
+const master = document.getElementById('master');
+const bpmEl = document.getElementById('bpm');
+startBtn.onclick = async ()=>{ await setup(); await audioCtx.resume(); started=true; startBtn.disabled=true; stopBtn.disabled=false; schedule(); };
+stopBtn.onclick = async ()=>{ if(!audioCtx) return; started=false; startBtn.disabled=false; stopBtn.disabled=true; await audioCtx.suspend(); };
+testBtn.onclick = async ()=>{ await setup(); await audioCtx.resume(); const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); g.gain.value=0; o.connect(g).connect(masterG); const t=audioCtx.currentTime; o.frequency.value=523.25; g.gain.linearRampToValueAtTime(0.08, t+0.01); g.gain.exponentialRampToValueAtTime(0.0008, t+1); o.start(t); o.stop(t+1); };
+master.oninput = e=>{ if(masterG) masterG.gain.value = parseInt(e.target.value,10)/100; };
+
+// WAV recording via ScriptProcessor (simple)
+const recBtn = document.getElementById('rec'), recStopBtn=document.getElementById('recStop'), rectime=document.getElementById('rectime');
+let sp=null; let data=[];
+recBtn.onclick = async ()=>{
+  await setup(); await audioCtx.resume();
+  if (sp) return;
+  sp = audioCtx.createScriptProcessor(4096, 1, 1);
+  sp.onaudioprocess = e=>{ data.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  limiter.connect(sp); sp.connect(audioCtx.destination);
+  recStart = performance.now();
+  timer = setInterval(()=>{ const sec = Math.floor((performance.now()-recStart)/1000); const m=String(Math.floor(sec/60)).padStart(2,'0'); const s=String(sec%60).padStart(2,'0'); rectime.textContent=m+':'+s; },500);
+  recBtn.disabled=true; recStopBtn.disabled=false; recBtn.classList.add('rec');
+};
+recStopBtn.onclick = ()=>{
+  if (!sp) return;
+  sp.disconnect(); sp=null;
+  clearInterval(timer); recBtn.disabled=false; recStopBtn.disabled=true; recBtn.classList.remove('rec'); rectime.textContent='00:00';
+  const wav = floatsToWav(data, audioCtx.sampleRate);
+  const blob = new Blob([wav], {type:'audio/wav'});
+  const url = URL.createObjectURL(blob);
+  const ts = new Date(); const pad=n=>String(n).padStart(2,'0');
+  const name = `AERIAL_recording_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.wav`;
+  const a = document.createElement('a'); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+  data = [];
+};
+function floatsToWav(chunks, sampleRate){
+  let length = 0; chunks.forEach(c=> length += c.length);
+  const pcm16 = new Int16Array(length);
+  let off=0; for(const c of chunks){ for(let i=0;i<c.length;i++){ let s=Math.max(-1,Math.min(1,c[i])); pcm16[off++] = s<0? (s*0x8000) : (s*0x7FFF); } }
+  const wav = new ArrayBuffer(44 + pcm16.byteLength); const dv = new DataView(wav);
+  function wstr(o,s){ for(let i=0;i<s.length;i++) dv.setUint8(o+i, s.charCodeAt(i)); }
+  let p=0; wstr(p,'RIFF'); p+=4; dv.setUint32(p,36+pcm16.byteLength,true); p+=4; wstr(p,'WAVE'); p+=4;
+  wstr(p,'fmt '); p+=4; dv.setUint32(p,16,true); p+=4; dv.setUint16(p,1,true); p+=2; dv.setUint16(p,1,true); p+=2;
+  dv.setUint32(p,sampleRate,true); p+=4; dv.setUint32(p,sampleRate*2,true); p+=4; dv.setUint16(p,2,true); p+=2; dv.setUint16(p,16,true); p+=2;
+  wstr(p,'data'); p+=4; dv.setUint32(p, pcm16.byteLength, true); p+=4; new Uint8Array(wav,44).set(new Uint8Array(pcm16.buffer)); return wav;
+}
+</script>
+</body></html>

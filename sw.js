@@ -1,11 +1,11 @@
-// sw.js v80 — HumTaste × Theremin
-const SW_VERSION = 'v80';
+// sw.js v81 — HumTaste × Theremin + Recorder
+const SW_VERSION = 'v81';
 const CACHE = 'aerial-humtheremin-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=80',
-  './hum-theremin.html?v=80',
-  './manifest.json?v=80',
+  './index.html?v=81',
+  './hum-theremin-recorder.html?v=81',
+  './manifest.json?v=81',
   './icon-192.png',
   './icon-512.png',
   './chime.mp3'
