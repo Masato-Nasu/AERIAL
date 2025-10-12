@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v9.1 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=9.1"/>
+<title>AERIAL v9.2 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=9.2"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,7 +19,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v9.1 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v9.2 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -38,7 +38,7 @@
   <button id="btnUnlock">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v9.1 Distributable: Instant-ready with fallback unlock ===== */
+/* ===== v9.2 Distributable: Instant-ready with fallback unlock ===== */
 let audioCtx=null, masterG, limiter;
 let padNodes=[], padGain, filter, reverb, lfo, lfoGain, noiseSrc, noiseGain;
 let therOsc, therGain;
@@ -56,10 +56,12 @@ function pickBaseHzByHour(){const h=new Date().getHours(); if(h>=5&&h<11)return 
 function makeImpulseResponse(ctx,duration=2.6,decay=5.5,reverse=false){const rate=ctx.sampleRate,length=rate*duration,imp=ctx.createBuffer(2,length,rate);for(let ch=0;ch<2;ch++){const data=imp.getChannelData(ch);for(let i=0;i<length;i++){const t=reverse?(length-i):i;data[i]=(Math.random()*2-1)*Math.pow(1-t/length,decay);}}return imp;}
 
 async function initRecorder(){ if(!audioCtx) return; if(audioCtx.audioWorklet && audioCtx.audioWorklet._addedMixTap) return;
-  const code=`class MixTap extends AudioWorkletProcessor{process(inputs){const ch=inputs[0]?.[0];if(ch)this.port.postMessage(ch);return true;}}registerProcessor('mix-tap',MixTap);`;
+  const code=`class MixTap extends AudioWorkletProcessor{process(inputs, outputs){const ch=inputs[0]?.[0];if(ch)this.port.postMessage(ch);return true;}}registerProcessor('mix-tap',MixTap);`;
   const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob);
   await audioCtx.audioWorklet.addModule(url); audioCtx.audioWorklet._addedMixTap=true;
   recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
+  // keep node alive in graph (silent branch)
+  const silent = audioCtx.createGain(); silent.gain.value = 0.0; recNode.connect(silent).connect(audioCtx.destination);
   recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
 }
 function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
@@ -136,7 +138,7 @@ function triggerBurst(){ burstT=performance.now(); }
 (function loop(){ requestAnimationFrame(loop); const now=performance.now(); const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0); g.clearRect(0,0,cvs.width,cvs.height); if(!burstT) return; const dt=(now-burstT)/1000; if(dt>0.9){ burstT=0; return; } const cx=innerWidth/2, cy=innerHeight*0.28; const rad=40+dt*420; const a=Math.max(0,1-dt*1.2); g.beginPath(); g.arc(cx,cy,rad,0,Math.PI*2); g.strokeStyle='rgba(143,211,255,'+a.toFixed(3)+')'; g.lineWidth=2+6*(1-a); g.stroke(); })();
 
 /* Recorder UI */
-function startRec(){ if(!audioCtx) return; recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
+async function startRec(){ if(!audioCtx) return; try{await audioCtx.resume();}catch{} recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
 function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v9_0_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
 
 /* BGM file */
