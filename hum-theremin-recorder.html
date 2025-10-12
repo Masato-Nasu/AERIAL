@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v9.4 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=9.4"/>
+<title>AERIAL v9.5 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=9.5"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,9 +19,9 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v9.4 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v9.5 — Distributable Edition</h1>
     <div class="row">
-      <button id="btnPause">⏸ Pause</button>
+      
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="60"/>
       <label>BGM</label>
@@ -38,7 +38,7 @@
   <button id="btnUnlock">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v9.4 Distributable: Instant-ready with fallback unlock ===== */
+/* ===== v9.5 Distributable: Instant-ready with fallback unlock ===== */
 let audioCtx=null, masterG, limiter;
 let padNodes=[], padGain, filter, reverb, lfo, lfoGain, noiseSrc, noiseGain;
 let therOsc, therGain;
@@ -79,7 +79,7 @@ async function setup(){
   const reverb= (function(){const rv=audioCtx.createConvolver(); rv.buffer=makeImpulseResponse(audioCtx,2.6,5.5,true); return rv;})();
   const revOut=audioCtx.createGain(); revOut.gain.value=0.25; reverb.connect(revOut).connect(masterG);
   filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=800;
-  padGain=audioCtx.createGain(); padGain.gain.value=0.18; padGain.connect(filter); filter.connect(reverb); filter.connect(masterG);
+  padGain=audioCtx.createGain(); padGain.gain.value=0.22; padGain.connect(filter); filter.connect(reverb); filter.connect(masterG);
   lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.09; lfoGain=audioCtx.createGain(); lfoGain.gain.value=200; lfo.connect(lfoGain); lfoGain.connect(filter.frequency); lfo.start();
   const base=pickBaseHzByHour(); const ratios=[1,5/4,3/2,2];
   for(let r of ratios){ const o=audioCtx.createOscillator(); o.type='sawtooth'; o.frequency.value=base*r*(1+(Math.random()-0.5)*0.01);
@@ -101,6 +101,19 @@ async function setup(){
 
   await initRecorder();
   initSensors();
+}
+
+
+async function ensureRunning(){
+  try{
+    if(!audioCtx) return;
+    await audioCtx.resume(); await ensureRunning();
+    // fire a 1-sample tick to satisfy mobile autoplay policies
+    const s=audioCtx.createBufferSource();
+    s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate);
+    s.connect(audioCtx.destination);
+    s.start();
+  }catch(e){}
 }
 
 function autoUnlockAttempt(){
@@ -138,7 +151,7 @@ function triggerBurst(){ burstT=performance.now(); }
 (function loop(){ requestAnimationFrame(loop); const now=performance.now(); const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0); g.clearRect(0,0,cvs.width,cvs.height); if(!burstT) return; const dt=(now-burstT)/1000; if(dt>0.9){ burstT=0; return; } const cx=innerWidth/2, cy=innerHeight*0.28; const rad=40+dt*420; const a=Math.max(0,1-dt*1.2); g.beginPath(); g.arc(cx,cy,rad,0,Math.PI*2); g.strokeStyle='rgba(143,211,255,'+a.toFixed(3)+')'; g.lineWidth=2+6*(1-a); g.stroke(); })();
 
 /* Recorder UI */
-async function startRec(){ if(!audioCtx) return; try{await audioCtx.resume();}catch{} recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
+async function startRec(){ if(!audioCtx) return; try{await audioCtx.resume(); await ensureRunning();}catch{} recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
 function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v9_0_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
 
 /* BGM file */
@@ -146,11 +159,11 @@ bgmMode.onchange=()=>{ bgmFile.style.display = (bgmMode.value==='file')?'inline-
 bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
 
 /* Pause/Resume */
-btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
+btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); await ensureRunning(); btnPause.textContent='⏸ Pause'; } };
 
 /* Start immediately with fallback overlay */
 (async function boot(){
-  await setup();
+  await setup(); await ensureRunning();
   // Try auto-unlock
   autoUnlockAttempt();
   // If still suspended after a tick, show overlay
@@ -162,16 +175,22 @@ btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'
 // Overlay button and global interactions to unlock
 async function unlockNow(){
   try{
-    if(!audioCtx) await setup();
+    if(!audioCtx) await setup(); await ensureRunning();
     // iOS permission request if available
     try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
-    await audioCtx.resume();
+    await audioCtx.resume(); await ensureRunning();
     const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start();
     hideUnlock();
   }catch(e){ console.warn(e); }
 }
 ['pointerdown','touchstart','keydown'].forEach(ev=>{ window.addEventListener(ev, unlockNow, {once:false,passive:true}); });
 btnUnlock.onclick = unlockNow;
+
+// Keep context alive on user interactions and tab focus
+['pointerdown','touchstart','keydown','click','visibilitychange'].forEach(ev=>{
+  window.addEventListener(ev, ()=>{ ensureRunning(); }, {passive:true});
+});
+
 /* Recording hooks */
 if (typeof recStartBtn !== 'undefined') { recStartBtn.onclick=startRec; }
 if (typeof recStopBtn !== 'undefined') { recStopBtn.onclick=stopRec; }
