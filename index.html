@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>AERIAL — Ambient Weather Music</title>
+  <meta name="theme-color" content="#0e0f12" />
+  <link rel="manifest" href="manifest.json?v=2" />
+  <link rel="icon" href="icon-192.png" sizes="192x192" />
+  <style>
+    body { margin:0; font-family: 'Noto Sans JP', system-ui, sans-serif; color:#e6e6e6; background:linear-gradient(180deg,#0b0d11,#10121a); }
+    .center { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; text-align:center; }
+    h1 { font-size:32px; letter-spacing:4px; font-weight:300; margin-bottom:6px; }
+    p { font-size:15px; color:#a9b6c7; max-width:420px; }
+    button { margin-top:20px; padding:12px 24px; background:#11263a; border:1px solid #224561; border-radius:10px; color:#cfe7ff; cursor:pointer; font-size:16px; }
+    canvas { position:fixed; inset:0; width:100%; height:100%; z-index:-1; }
+  </style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div class="center">
+  <img src="icon-192.png" alt="AERIAL logo" width="96" height="96" style="opacity:.9; filter:drop-shadow(0 0 12px #8fd3ff50);">
+  <h1>AERIAL</h1>
+  <p>アンテナのように空気を受信し、環境から音楽を生み出すアンビエントアプリ。</p>
+  <button id="btnEnter">▶ Start</button>
+</div>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js?v=2');
+}
+const c=document.getElementById('bg');const ctx=c.getContext('2d');
+function resize(){c.width=innerWidth; c.height=innerHeight;} resize(); addEventListener('resize',resize);
+function loop(){
+  requestAnimationFrame(loop);
+  const w=c.width,h=c.height;
+  const g=ctx.createRadialGradient(w/2,h/2,100,w/2,h/2,Math.max(w,h)*0.7);
+  g.addColorStop(0,'rgba(40,60,100,0.3)'); g.addColorStop(1,'rgba(10,12,16,1)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='rgba(143,211,255,0.04)';
+  for(let i=0;i<40;i++){const x=Math.random()*w;const y=Math.random()*h;const r=Math.random()*2;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+}
+loop();
+document.getElementById('btnEnter').onclick=()=>{window.location.href='index-main.html?v=2';};
+</script>
+</body>
+</html>
