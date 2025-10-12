@@ -1,11 +1,11 @@
-// sw.js v7 — Sensor Sampler Ambient
-const SW_VERSION = 'v7';
-const CACHE = 'aerial-sampler-' + SW_VERSION;
+// sw.js v71 — Theremin build
+const SW_VERSION = 'v71';
+const CACHE = 'aerial-theremin-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=7',
-  './sampler.html?v=7',
-  './manifest.json?v=7',
+  './index.html?v=71',
+  './theremin.html?v=71',
+  './manifest.json?v=71',
   './icon-192.png',
   './icon-512.png'
 ];
@@ -14,7 +14,6 @@ self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
 });
-
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
@@ -22,7 +21,6 @@ self.addEventListener('activate', (e) => {
     await self.clients.claim();
   })());
 });
-
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
@@ -43,7 +41,4 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
   }
 });
-
-self.addEventListener('message', (e) => {
-  if (e.data === 'SKIP_WAITING') self.skipWaiting();
-});
+self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
