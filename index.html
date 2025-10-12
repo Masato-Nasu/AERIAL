@@ -1,27 +1,449 @@
+
 <!doctype html>
-<html lang="ja"><head>
-<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>AERIAL — v8.1 HumTaste × Theremin + Recorder</title>
-<meta name="theme-color" content="#0b0d11" />
-<link rel="manifest" href="manifest.json?v=81" />
-<link rel="icon" href="icon-192.png" sizes="192x192" />
-<style>
-  body{margin:0;background:linear-gradient(180deg,#0b0d11,#10121a);color:#e6e6e6;font-family:system-ui,'Noto Sans JP',sans-serif}
-  .center{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
-  h1{font-weight:300;letter-spacing:3px}
-  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:10px}
-  a.btn{padding:10px 16px;background:#0f1320;border:1px solid #253043;border-radius:10px;color:#cfe7ff;text-decoration:none}
-</style>
-</head><body>
-<div class="center">
-  <img src="icon-192.png" width="96" height="96" alt="logo" style="opacity:.9;filter:drop-shadow(0 0 12px #8fd3ff50)">
-  <h1>AERIAL</h1>
-  <p>v8.1 — HumTaste × Theremin（内蔵アンプ優先）＋ WAV レコーダー</p>
-  <div class="row">
-    <a class="btn" href="hum-theremin-recorder.html?v=81">▶ Launch</a>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>AERIAL v8.2</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0b0d"/>
+  <style>
+    :root{
+      --bg:#0b0b0d; --fg:#e6e6eb; --muted:#a8acb6; --accent:#6ae1ff; --ok:#a8ffcc; --warn:#ffd36a;
+    }
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";}
+    .wrap{display:flex;flex-direction:column;min-height:100dvh}
+    header{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid #16161a;position:sticky;top:0;background:linear-gradient(180deg, rgba(12,12,16,.9), rgba(12,12,16,.7));backdrop-filter: blur(8px);}
+    .dot{width:10px;height:10px;border-radius:50%;background:#28d17c;box-shadow:0 0 12px #28d17cAA}
+    h1{font-size:16px;margin:0 0 0 .25rem;letter-spacing:.4px}
+    main{flex:1;display:grid;place-items:center;padding:1rem}
+    canvas{width:min(96vw,820px);height:min(60vh,480px);background:radial-gradient(120% 90% at 50% 50%, #121218, #0b0b0d);border:1px solid #15151b;border-radius:18px;box-shadow:0 12px 50px rgba(0,0,0,.45) inset, 0 2px 10px rgba(0,0,0,.3);}
+    .controls{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:0 .5rem .75rem 1rem;border-bottom:1px solid #141419}
+    button, .pill{background:#15151c;color:var(--fg);border:1px solid #1f1f27;border-radius:999px;padding:.55rem .9rem;font-weight:600;letter-spacing:.2px;cursor:pointer}
+    button:hover{border-color:#2b2b35}
+    .pill{opacity:.9}
+    .meter{display:flex;gap:.75rem;align-items:center;margin-left:auto;margin-right:1rem;font-variant-numeric:tabular-nums}
+    .meter span{color:var(--muted);font-size:12px}
+    .small{font-size:12px;color:var(--muted)}
+    footer{padding:.75rem 1rem;color:var(--muted);font-size:12px;display:flex;justify-content:space-between;align-items:center}
+    .badge{padding:.25rem .5rem;border:1px solid #252530;border-radius:999px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="dot"></div>
+    <h1>AERIAL v8.2</h1>
+    <span class="pill">🎨 Dark Minimal</span>
+    <span class="pill">🔔 Chime +2.5 dB</span>
+    <span class="pill">🎙 WAV Rec</span>
+  </header>
+
+  <div class="controls">
+    <button id="btnStart">▶ Start Audio</button>
+    <button id="btnChime">🔔 Chime</button>
+    <button id="btnRecStart">⏺ Start Rec</button>
+    <button id="btnRecStop" disabled>⏹ Stop & Save WAV</button>
+    <span class="small">Theremin Vol small / HumTaste strong</span>
+    <div class="meter">
+      <span id="mYaw">Yaw 0°</span>
+      <span id="mPitch">Pitch 0°</span>
+      <span id="mRoll">Roll 0°</span>
+    </div>
   </div>
+
+  <main>
+    <canvas id="viz" width="1280" height="800"></canvas>
+  </main>
+
+  <footer>
+    <span class="badge">🌀 Smooth sin control / 1.5× pitch sensitivity</span>
+    <span>PWA ready — install from browser menu</span>
+  </footer>
 </div>
+
 <script>
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js?v=81'); }
+// ===== PWA bootstrap =====
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(console.warn);
+  });
+}
+
+// ===== Audio + Synthesis Setup =====
+let ctx, master, humTaste, theremin, chimeGain, analyser, meterData, workletNode, recBuffers = [], recSampleRate = 48000, recording = false;
+const GAIN_CHIME_DB = 2.5; // ≈ 1.333×
+const GAIN_CHIME = Math.pow(10, GAIN_CHIME_DB/20);
+const THEREMIN_TRIM = 0.35; // "テルミン小さめ"
+const HUMPAD_GAIN = 0.9;    // "HumTaste強化"
+let mixTap; // Media stream tap for recorder
+
+async function ensureAudio() {
+  if (ctx) {
+    if (ctx.state !== 'running') await ctx.resume();
+    return;
+  }
+  ctx = new (window.AudioContext || window.webkitAudioContext)({latencyHint: "interactive"});
+  master = ctx.createGain();
+  master.gain.value = 0.9;
+  master.connect(ctx.destination);
+
+  // Create a separate mix tap for recording
+  const tapDest = ctx.createMediaStreamDestination();
+  master.connect(tapDest);
+  mixTap = tapDest.stream;
+
+  // HumTaste: layered pad (saw + noise) through warm filter
+  const padGain = ctx.createGain();
+  padGain.gain.value = HUMPAD_GAIN;
+  padGain.connect(master);
+
+  // saw stack
+  const freqs = [110, 220, 330];
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass"; filter.frequency.value = 1800; filter.Q.value = 0.6;
+  filter.connect(padGain);
+
+  freqs.forEach((f,i)=>{
+    const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = f;
+    const g = ctx.createGain(); g.gain.value = 0.1 * (1 - i*0.25);
+    o.connect(g).connect(filter);
+    o.start();
+  });
+
+  // gentle noise underlay
+  const noiseBuf = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
+  const ch = noiseBuf.getChannelData(0);
+  for(let i=0;i<ch.length;i++) ch[i] = (Math.random()*2-1) * 0.05;
+  const noise = ctx.createBufferSource(); noise.buffer = noiseBuf; noise.loop = true;
+  const nFilt = ctx.createBiquadFilter(); nFilt.type="bandpass"; nFilt.frequency.value=900; nFilt.Q.value=0.5;
+  const nGain = ctx.createGain(); nGain.gain.value = 0.2;
+  noise.connect(nFilt).connect(nGain).connect(filter);
+  noise.start();
+
+  // Theremin (small)
+  theremin = ctx.createOscillator(); theremin.type="triangle"; theremin.frequency.value = 440;
+  const therGain = ctx.createGain(); therGain.gain.value = 0.12 * THEREMIN_TRIM;
+  const therVibrato = ctx.createOscillator(); therVibrato.type="sine"; therVibrato.frequency.value = 5.2;
+  const therVibGain = ctx.createGain(); therVibGain.gain.value = 6; // Hz deviation
+  therVibrato.connect(therVibGain).connect(theremin.frequency);
+  theremin.connect(therGain).connect(master);
+  theremin.start(); therVibrato.start();
+
+  // Chime synth (procedural, no assets)
+  chimeGain = ctx.createGain(); chimeGain.gain.value = 0;
+  chimeGain.connect(master);
+
+  // Meter
+  analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+  meterData = new Uint8Array(analyser.frequencyBinCount);
+  filter.connect(analyser); // observe pad
+
+  // Recorder worklet
+  const workletCode = `
+    class MixRecorder extends AudioWorkletProcessor {
+      constructor(){
+        super();
+      }
+      process(inputs, outputs, parameters){
+        const input = inputs[0];
+        if(!input || input.length === 0) return true;
+        const ch0 = input[0]; // mono mix
+        if(!ch0) return true;
+        // pass-through silent (we only capture)
+        // Send chunks to main thread (Float32)
+        this.port.postMessage(ch0);
+        return true;
+      }
+    }
+    registerProcessor('mix-recorder', MixRecorder);
+  `;
+  const blob = new Blob([workletCode], {type:'application/javascript'});
+  const url = URL.createObjectURL(blob);
+  await ctx.audioWorklet.addModule(url);
+  workletNode = new AudioWorkletNode(ctx, 'mix-recorder');
+  // Route: master -> (already to dest); also split to worklet via a splitter gain
+  const recTap = ctx.createGain(); recTap.gain.value = 1.0;
+  master.connect(recTap).connect(workletNode);
+  workletNode.port.onmessage = (e)=>{
+    if(!recording) return;
+    recBuffers.push(new Float32Array(e.data));
+  };
+
+  // Visibility resume
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.visibilityState === 'visible' && ctx && ctx.state !== 'running') {
+      ctx.resume();
+    }
+  }, {passive:true});
+}
+
+function triggerChime(){
+  if(!ctx) return;
+  const now = ctx.currentTime;
+  const seq = [
+    {f:987.77, t:0.00, dur:0.08, g:0.6},
+    {f:1318.51,t:0.02, dur:0.10, g:0.45},
+    {f:1760.00,t:0.06, dur:0.22, g:0.35}
+  ];
+  chimeGain.gain.cancelScheduledValues(now);
+  seq.forEach(note=>{
+    const osc = ctx.createOscillator(); osc.type = "sine"; osc.frequency.value = note.f;
+    const env = ctx.createGain(); env.gain.value = 0;
+    const decay = 0.6;
+    osc.connect(env).connect(chimeGain);
+    env.gain.setValueAtTime(0, now+note.t);
+    env.gain.linearRampToValueAtTime(note.g * GAIN_CHIME, now+note.t+0.01);
+    env.gain.exponentialRampToValueAtTime(0.0008, now+note.t+note.dur+decay);
+    const filt = ctx.createBiquadFilter(); filt.type="highpass"; filt.frequency.value=500;
+    env.connect(filt).connect(master);
+    osc.start(now+note.t);
+    osc.stop(now+note.t+note.dur+decay+0.02);
+  });
+  burst();
+}
+
+// ===== Device orientation smoothing (sinusoidal control) =====
+const state = {
+  yaw:0, pitch:0, roll:0,
+  sy:0, sp:0, sr:0, // smoothed radians
+};
+const ALPHA = 0.08; // EMA
+function angDiff(a,b){
+  let d = a - b;
+  while (d > 180) d -= 360;
+  while (d < -180) d += 360;
+  return d;
+}
+function smoothAngles(a,b){ // target a (deg), prev b (deg)
+  const d = angDiff(a,b);
+  return b + d * ALPHA;
+}
+function degToSmoothSin(deg){
+  // map [-180,180] → [-1,1] with gentle peak near ±180/±0
+  const rad = (deg * Math.PI) / 180;
+  return Math.sin(rad); // smooth, zero at 0°, ±1 at ±90°
+}
+
+// We'll favor pitch sensitivity ×1.5 as "altitude feel"
+const PITCH_SENS = 1.5;
+
+function handleOrient(e){
+  const yaw = (typeof e.alpha === 'number') ? e.alpha : 0;         // 0..360
+  const pitch = (typeof e.beta === 'number') ? e.beta : 0;         // -180..180
+  const roll = (typeof e.gamma === 'number') ? e.gamma : 0;        // -90..90 (approx)
+  // Convert yaw to [-180,180]
+  let yaw180 = yaw; if (yaw180 > 180) yaw180 -= 360;
+
+  // Smooth wrapped angles
+  state.yaw = smoothAngles(yaw180, state.yaw);
+  state.pitch = smoothAngles(pitch, state.pitch);
+  state.roll = smoothAngles(roll, state.roll);
+
+  // Sinusoidal gentle mapping
+  const sy = degToSmoothSin(state.yaw);
+  const sp = degToSmoothSin(state.pitch) * PITCH_SENS; // altitude sensitivity ×1.5
+  const sr = degToSmoothSin(state.roll);
+
+  // Apply to theremin pitch & pad filter for musical motion
+  if (theremin && ctx){
+    const base = 440;
+    const range = 880; // 2 octaves span at extremes
+    const freq = base + (sy*0.4 + sp*0.6) * range; // blend yaw/pitch
+    theremin.frequency.setTargetAtTime(Math.max(80, Math.min(2000, freq)), ctx.currentTime, 0.03);
+  }
+  // Subtle stereo sway via roll
+  if (master && master.channelCountMode !== "explicit"){
+    // no panner node for simplicity; could add later
+  }
+
+  // UI meters
+  document.getElementById('mYaw').textContent = `Yaw ${state.yaw.toFixed(0)}°`;
+  document.getElementById('mPitch').textContent = `Pitch ${state.pitch.toFixed(0)}°`;
+  document.getElementById('mRoll').textContent = `Roll ${state.roll.toFixed(0)}°`;
+}
+
+// ===== Shake detection triggers chime =====
+let lastAccel = {x:0,y:0,z:0}, lastShake = 0;
+function handleMotion(e){
+  const a = e.accelerationIncludingGravity;
+  if(!a) return;
+  const mag = Math.hypot(a.x||0, a.y||0, a.z||0);
+  const now = performance.now();
+  if (mag > 28 && (now - lastShake) > 600){
+    lastShake = now;
+    triggerChime();
+  }
+}
+
+// ===== Visualizer with "burst" effect on chime =====
+const canvas = document.getElementById('viz');
+const g = canvas.getContext('2d');
+let burstT = 0;
+function burst(){ burstT = performance.now(); }
+
+function draw(){
+  requestAnimationFrame(draw);
+  const w = canvas.width, h = canvas.height;
+  // Background pulse from analyser
+  if (analyser){
+    analyser.getByteTimeDomainData(meterData);
+    let avg = 0; for(let i=0;i<meterData.length;i++) avg += Math.abs(meterData[i]-128);
+    avg = avg / meterData.length / 128; // 0..~1
+    const glow = Math.min(1, avg*1.6);
+    const cx = w/2, cy = h/2;
+    g.clearRect(0,0,w,h);
+    const grad = g.createRadialGradient(cx, cy, Math.max(60, 260*glow), cx, cy, Math.max(w,h)/1.1);
+    grad.addColorStop(0, `rgba(106,225,255,${0.25+glow*0.35})`);
+    grad.addColorStop(1, `rgba(11,11,13,1)`);
+    g.fillStyle = grad; g.fillRect(0,0,w,h);
+
+    // Antenna silhouette
+    g.save();
+    g.translate(cx, cy+40);
+    g.strokeStyle = "rgba(200,200,220,0.6)";
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(0, -180); g.lineTo(0, 220); g.stroke();
+    g.beginPath(); g.arc(0, -190, 8, 0, Math.PI*2); g.fillStyle="rgba(230,230,240,0.85)"; g.fill();
+    // arcs
+    g.strokeStyle = "rgba(180,180,200,0.55)"; g.lineWidth = 3;
+    for(let i=0;i<3;i++){
+      const r = 60 + i*36 + Math.sin(performance.now()/600 + i)*3;
+      g.beginPath(); g.arc(0, -190, r, Math.PI*0.6, Math.PI*0.4, true); g.stroke();
+      g.beginPath(); g.arc(0, -190, r, -Math.PI*0.6, -Math.PI*0.4, false); g.stroke();
+    }
+    g.restore();
+
+    // BURST ring when chime
+    if (burstT){
+      const dt = (performance.now() - burstT)/1000;
+      if (dt < 0.9){
+        const r = 40 + dt*420;
+        const a = Math.max(0, 1 - dt*1.2);
+        g.beginPath();
+        g.arc(cx, cy-160, r, 0, Math.PI*2);
+        g.strokeStyle = `rgba(255,255,255,${a})`;
+        g.lineWidth = 2 + 6*(1-a);
+        g.stroke();
+      } else {
+        burstT = 0;
+      }
+    }
+  } else {
+    // idle
+    g.fillStyle = "#0b0b0d"; g.fillRect(0,0,w,h);
+  }
+}
+draw();
+
+// ===== WAV Recorder (from master mix via worklet + WAV mux) =====
+function interleaveFloat32(chunks){
+  // chunks: array of Float32Array mono blocks; concatenate
+  const total = chunks.reduce((s,a)=>s+a.length,0);
+  const out = new Float32Array(total);
+  let offset=0; for(const a of chunks){ out.set(a, offset); offset+=a.length; }
+  return out;
+}
+
+function floatTo16PCM(float32){
+  const out = new DataView(new ArrayBuffer(float32.length*2));
+  let offset=0;
+  for(let i=0;i<float32.length;i++,offset+=2){
+    let s = Math.max(-1, Math.min(1, float32[i]));
+    out.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return out;
+}
+
+function encodeWAV(samples, sampleRate){
+  const buffer = new ArrayBuffer(44 + samples.byteLength);
+  const view = new DataView(buffer);
+  function writeString(off, s){ for(let i=0;i<s.length;i++) view.setUint8(off+i, s.charCodeAt(i)); }
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample/8;
+  const blockAlign = numChannels * bitsPerSample/8;
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + samples.byteLength, true);
+  writeString(8, 'WAVE');
+  writeString(12,'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(36,'data');
+  view.setUint32(40, samples.byteLength, true);
+  return new Blob([view, samples], {type:'audio/wav'});
+}
+
+async function startRec(){
+  await ensureAudio();
+  recBuffers.length = 0;
+  recSampleRate = ctx.sampleRate;
+  recording = true;
+  document.getElementById('btnRecStart').disabled = true;
+  document.getElementById('btnRecStop').disabled = false;
+}
+
+async function stopRecAndSave(){
+  recording = False = false; // typo-proof
+  recording = false;
+  document.getElementById('btnRecStart').disabled = false;
+  document.getElementById('btnRecStop').disabled = true;
+  const mono = interleaveFloat32(recBuffers);
+  const pcm16 = floatTo16PCM(mono);
+  const wav = encodeWAV(pcm16, recSampleRate);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g,'-');
+  a.href = URL.createObjectURL(wav);
+  a.download = `AERIAL_v8_2_${ts}.wav`;
+  a.click();
+}
+
+// ===== UI buttons =====
+document.getElementById('btnStart').addEventListener('click', async ()=>{
+  await ensureAudio();
+});
+document.getElementById('btnChime').addEventListener('click', ()=>{
+  ensureAudio().then(triggerChime);
+});
+document.getElementById('btnRecStart').addEventListener('click', ()=>startRec());
+document.getElementById('btnRecStop').addEventListener('click', ()=>stopRecAndSave());
+
+// Also trigger chime on tap anywhere on canvas
+document.getElementById('viz').addEventListener('pointerdown', ()=> ensureAudio().then(triggerChime));
+
+// ===== Device permissions =====
+async function requestMotionPermIfNeeded(){
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+    try {
+      const st = await DeviceMotionEvent.requestPermission();
+      // ignore result, we will attach either way
+    } catch(e){}
+  }
+}
+
+async function initSensors(){
+  requestMotionPermIfNeeded();
+  window.addEventListener('deviceorientation', handleOrient, true);
+  window.addEventListener('devicemotion', handleMotion, true);
+}
+initSensors();
+
+// ===== Resize handling for crisp canvas =====
+function fitCanvas(){
+  const ratio = window.devicePixelRatio || 1;
+  const c = document.getElementById('viz');
+  const rect = c.getBoundingClientRect();
+  c.width = Math.max(800, Math.floor(rect.width * ratio));
+  c.height = Math.max(500, Math.floor(rect.height * ratio));
+}
+window.addEventListener('resize', fitCanvas); fitCanvas();
+
 </script>
-</body></html>
+</body>
+</html>

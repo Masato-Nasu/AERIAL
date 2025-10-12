@@ -1,12 +1,21 @@
 {
-  "name": "AERIAL — v8.1 HumTaste × Theremin + Recorder",
+  "name": "AERIAL v8.2",
   "short_name": "AERIAL",
-  "start_url": "./index.html?v=81",
+  "description": "AERIAL v8.2 — Dark Minimal antenna icon, HumTaste source + softer Theremin, +2.5 dB chime with burst, smooth yaw/pitch/roll control, altitude sensitivity x1.5, WAV recorder, robust AudioContext bootstrap.",
+  "start_url": "index.html?v=8.2",
   "display": "standalone",
-  "background_color": "#0b0d11",
-  "theme_color": "#0b0d11",
+  "background_color": "#0b0b0d",
+  "theme_color": "#0b0b0d",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }
