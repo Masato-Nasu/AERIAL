@@ -1,10 +1,11 @@
-// sw.js v2 — cache-busting + fast updates
-const SW_VERSION = 'v2';
+// sw.js v3 — network-first html + cache-first assets
+const SW_VERSION = 'v3';
 const CACHE = 'aerial-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=2',
-  './manifest.json?v=2',
+  './index.html?v=3',
+  './index-main.html?v=3',
+  './manifest.json?v=3',
   './icon-192.png',
   './icon-512.png'
 ];
@@ -23,6 +24,22 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+  if (url.pathname.endsWith('.html') || url.pathname === '/' ) {
+    e.respondWith((async () => {
+      try {
+        const net = await fetch(e.request);
+        const cache = await caches.open(CACHE);
+        cache.put(e.request, net.clone());
+        return net;
+      } catch {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(e.request);
+        return cached || new Response('Offline', { status: 503 });
+      }
+    })());
+  } else {
+    e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
+  }
 });
