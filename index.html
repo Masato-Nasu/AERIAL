@@ -1,45 +1,25 @@
 <!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>AERIAL — Deep Ambient Edition (v6)</title>
-  <meta name="theme-color" content="#0b0d11" />
-  <link rel="manifest" href="manifest.json?v=6" />
-  <link rel="icon" href="icon-192.png" sizes="192x192" />
-  <style>
-    body { margin:0; font-family: 'Noto Sans JP', system-ui, sans-serif; color:#e6e6e6; background:linear-gradient(180deg,#0b0d11,#10121a); }
-    .center { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; text-align:center; padding:24px;}
-    h1 { font-size:30px; letter-spacing:3px; font-weight:300; margin-bottom:6px; }
-    p { font-size:14px; color:#a9b6c7; max-width:520px; }
-    button { margin-top:18px; padding:12px 24px; background:#11263a; border:1px solid #224561; border-radius:10px; color:#cfe7ff; cursor:pointer; font-size:16px; }
-    canvas { position:fixed; inset:0; width:100%; height:100%; z-index:-1; }
-  </style>
-</head>
-<body>
-<canvas id="bg"></canvas>
+<html lang="ja"><head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>AERIAL — v7 Sensor Sampler Ambient</title>
+<meta name="theme-color" content="#0b0d11" />
+<link rel="manifest" href="manifest.json?v=7" />
+<link rel="icon" href="icon-192.png" sizes="192x192" />
+<style>
+  body{margin:0;background:linear-gradient(180deg,#0b0d11,#10121a);color:#e6e6e6;font-family:system-ui,'Noto Sans JP',sans-serif}
+  .center{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+  h1{font-weight:300;letter-spacing:3px}
+  button{margin-top:14px;padding:12px 24px;background:#11263a;border:1px solid #224561;border-radius:10px;color:#cfe7ff;cursor:pointer}
+</style>
+</head><body>
 <div class="center">
-  <img src="icon-192.png" alt="AERIAL logo" width="96" height="96" style="opacity:.9; filter:drop-shadow(0 0 12px #8fd3ff50);">
+  <img src="icon-192.png" width="96" height="96" alt="logo" style="opacity:.9;filter:drop-shadow(0 0 12px #8fd3ff50)">
   <h1>AERIAL</h1>
-  <p>Deep Ambient Edition — 拍のない、深く続く揺らぎ。センサーで“空気”を演奏する。</p>
-  <button id="btnEnter">▶ Enter</button>
-  <p style="margin-top:10px; font-size:12px; color:#7f8a98;">PWA対応：ホーム画面に追加してオフライン再生</p>
+  <p>v7 — Sensor Sampler Ambient：手元の音源ファイルや録音を取り込み、センサーで“音楽化”。</p>
+  <button id="go">▶ Enter</button>
 </div>
 <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=6');
-}
-const c=document.getElementById('bg');const ctx=c.getContext('2d');
-function resize(){c.width=innerWidth; c.height=innerHeight;} resize(); addEventListener('resize',resize);
-let t=0; function loop(){ requestAnimationFrame(loop); const w=c.width,h=c.height; t+=0.003;
-  const g=ctx.createRadialGradient(w/2,h/2,100,w/2,h/2,Math.max(w,h)*0.75);
-  g.addColorStop(0,'rgba(40,60,100,0.35)'); g.addColorStop(1,'rgba(10,12,16,1)');
-  ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
-  ctx.fillStyle='rgba(143,211,255,0.05)';
-  for(let i=0;i<60;i++){const x=(Math.sin(t*0.9+i)*0.5+0.5)*w; const y=(Math.cos(t*0.8+i*1.3)*0.5+0.5)*h; const r=1+Math.random()*2; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();}
-}
-loop();
-document.getElementById('btnEnter').onclick=()=>{location.href='deep.html?v=6';};
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js?v=7'); }
+document.getElementById('go').onclick=()=>location.href='sampler.html?v=7';
 </script>
-</body>
-</html>
+</body></html>

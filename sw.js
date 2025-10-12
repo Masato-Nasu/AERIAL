@@ -1,11 +1,11 @@
-// sw.js v6 — Deep Ambient
-const SW_VERSION = 'v6';
-const CACHE = 'aerial-deep-' + SW_VERSION;
+// sw.js v7 — Sensor Sampler Ambient
+const SW_VERSION = 'v7';
+const CACHE = 'aerial-sampler-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=6',
-  './deep.html?v=6',
-  './manifest.json?v=6',
+  './index.html?v=7',
+  './sampler.html?v=7',
+  './manifest.json?v=7',
   './icon-192.png',
   './icon-512.png'
 ];

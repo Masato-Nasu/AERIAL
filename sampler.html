@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v7 — Sensor Sampler Ambient</title>
+<link rel="manifest" href="manifest.json?v=7"/><link rel="icon" href="icon-192.png" sizes="192x192"/>
+<style>
+  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,'Noto Sans JP',sans-serif}
+  main{max-width:1100px;margin:0 auto;padding:14px;display:grid;grid-template-columns:1.1fr .9fr;gap:12px}
+  @media (max-width:920px){main{grid-template-columns:1fr}}
+  .card{background:#12151b;border:1px solid #1f242c;border-radius:14px;padding:14px}
+  h1{font-size:18px;margin:0 0 10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input[type=file],button,select,input[type=range]{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:10px;padding:8px 10px;font-size:14px}
+  .kv{display:inline-flex;gap:6px;align-items:center;background:#0f1320;border:1px solid #253043;border-radius:12px;padding:8px 10px;font-size:13px;margin:4px 4px 0 0}
+  .muted{color:var(--muted);font-size:12px}
+  #canvas{width:100%;height:260px;background: radial-gradient(800px 600px at 50% 60%, #1a1f29, #0b0c0f); border:1px solid #1f242c; border-radius:12px;}
+  #log{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;background:#0f1320;border:1px solid #253043;border-radius:10px;padding:8px}
+</style>
+</head><body>
+<main>
+  <section class="card">
+    <h1>Sensor Sampler Ambient</h1>
+    <canvas id="canvas"></canvas>
+    <div class="row" style="margin-top:8px">
+      <input id="file" type="file" accept="audio/*" />
+      <button id="btnStart">▶ Start</button>
+      <button id="btnStop" disabled>⏹ Stop</button>
+      <button id="btnUpdate">🔄 Force Reload</button>
+      <span class="muted">手持ちの音源を読み込んで、センサーで粒状化（グラニュラー）します。</span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>Reactivity</label><input id="react" type="range" min="0" max="100" value="70"/>
+      <label>Density</label><input id="dens" type="range" min="0" max="100" value="60"/>
+      <label>Brightness</label><input id="bright" type="range" min="0" max="100" value="45"/>
+      <label>Musicness</label><input id="music" type="range" min="0" max="100" value="65"/>
+    </div>
+    <div class="muted" style="margin-top:6px">※ サンプルが無くても内蔵Drone/Padで鳴ります。読み込むと自動でブレンド。</div>
+  </section>
+
+  <section class="card">
+    <h1>Sensors</h1>
+    <div class="row">
+      <div class="kv">Noise <span id="noise">-- dB</span></div>
+      <div class="kv">Light <span id="light">-- lux</span></div>
+      <div class="kv">Motion <span id="motion">--</span></div>
+      <div class="kv">Yaw <span id="yaw">--°</span></div>
+      <div class="kv">Hour <span id="hour">--:--</span></div>
+      <div class="kv">Lat/Lon <span id="latlon">--</span></div>
+    </div>
+    <div style="margin-top:10px"><div id="log"></div></div>
+  </section>
+</main>
+
+<script>
+// ---------- UI ----------
+const els = {
+  canvas: document.getElementById('canvas'),
+  file: document.getElementById('file'),
+  btnStart: document.getElementById('btnStart'),
+  btnStop: document.getElementById('btnStop'),
+  btnUpdate: document.getElementById('btnUpdate'),
+  react: document.getElementById('react'),
+  dens: document.getElementById('dens'),
+  bright: document.getElementById('bright'),
+  music: document.getElementById('music'),
+  noise: document.getElementById('noise'),
+  light: document.getElementById('light'),
+  motion: document.getElementById('motion'),
+  yaw: document.getElementById('yaw'),
+  hour: document.getElementById('hour'),
+  latlon: document.getElementById('latlon'),
+  log: document.getElementById('log'),
+};
+function log(s){ els.log.textContent = (new Date()).toLocaleTimeString() + '  ' + s + "\n" + els.log.textContent; }
+
+// ---------- Audio ----------
+let audioCtx, master, reverb, filt, padBus, grainBus, melBus;
+let droneLow, droneHigh, lfo1, lfo2, micAnalyser;
+let buf=null, running=false;
+
+function setupAudio(){
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  master = audioCtx.createGain(); master.gain.value = 0.9; master.connect(audioCtx.destination);
+  // Reverb
+  reverb = audioCtx.createConvolver(); reverb.buffer = makeImpulseResponse(audioCtx, 5.5, 7.5, true);
+  const revG = audioCtx.createGain(); revG.gain.value = 0.35; reverb.connect(revG).connect(master);
+  // Filter
+  filt = audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value = 1200; filt.Q.value = 0.6;
+  // Buses
+  padBus = audioCtx.createGain(); padBus.gain.value = 0.45; padBus.connect(filt); filt.connect(reverb); filt.connect(master);
+  grainBus = audioCtx.createGain(); grainBus.gain.value = 0.5; grainBus.connect(reverb);
+  melBus = audioCtx.createGain(); melBus.gain.value = 0.22; melBus.connect(reverb);
+  // Internal drone
+  droneLow = audioCtx.createOscillator(); droneLow.type='sine'; droneLow.frequency.value = pickBaseHzByHour()/2;
+  const lowG = audioCtx.createGain(); lowG.gain.value = 0.18; droneLow.connect(lowG).connect(padBus); droneLow.start();
+  droneHigh = audioCtx.createOscillator(); droneHigh.type='sawtooth'; droneHigh.frequency.value = pickBaseHzByHour();
+  const hiG = audioCtx.createGain(); hiG.gain.value = 0.08; droneHigh.connect(hiG).connect(padBus); droneHigh.start();
+  // LFOs
+  lfo1 = audioCtx.createOscillator(); lfo1.type='sine'; lfo1.frequency.value = 0.05;
+  lfo2 = audioCtx.createOscillator(); lfo2.type='sine'; lfo2.frequency.value = 0.09;
+  const l1g = audioCtx.createGain(); l1g.gain.value = 40; lfo1.connect(l1g).connect(filt.frequency);
+  const l2g = audioCtx.createGain(); l2g.gain.value = 0.004; lfo2.connect(l2g).connect(droneHigh.frequency);
+  lfo1.start(); lfo2.start();
+}
+
+function makeImpulseResponse(ctx, duration=4.5, decay=7, reverse=false){
+  const rate = ctx.sampleRate, length = rate*duration, impulse = ctx.createBuffer(2,length,rate);
+  for (let ch=0; ch<2; ch++){ const data = impulse.getChannelData(ch);
+    for (let i=0;i<length;i++){ const t = reverse ? (length-i) : i; data[i]=(Math.random()*2-1)*Math.pow(1 - t/length, decay); } }
+  return impulse;
+}
+
+// ---------- Granular Sampler ----------
+let grainTimer=null;
+function startGranular(){
+  stopGranular();
+  const baseRate = 1.0;
+  const react = parseInt(els.react.value,10)/100;
+  const dens = parseInt(els.dens.value,10)/100;
+  const interval = 80 + (1-dens)*220; // 80ms .. 300ms
+  grainTimer = setInterval(()=>{
+    const rMotion = Math.pow(motionAmt, 0.65) * (0.5 + react*1.2);
+    const rNoise  = Math.pow(noiseLevel, 0.8) * (0.3 + react*0.9);
+    const rLight  = Math.pow(lux/800, 0.7);
+    const rate = baseRate * (0.8 + rLight*0.6 + rMotion*0.3);
+    const g = audioCtx.createBufferSource();
+    g.buffer = buf || fallbackNoise(audioCtx);
+    const dur = 0.09 + rMotion*0.25 + rNoise*0.18; // grain length
+    const off = Math.random() * Math.max(0.01, (g.buffer.duration - dur));
+    g.playbackRate.value = rate;
+    const env = audioCtx.createGain(); env.gain.value = 0;
+    const t = audioCtx.currentTime;
+    env.gain.linearRampToValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(1, t + dur*0.35);
+    env.gain.linearRampToValueAtTime(0.0, t + dur);
+    const pan = new StereoPannerNode(audioCtx, { pan: (yaw*2-1) * 0.6 });
+    const lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 600 + (parseInt(els.bright.value,10)/100)*3000 + lux*1.2;
+    g.connect(lp).connect(env).connect(pan).connect(grainBus);
+    g.start(t, off, dur);
+  }, interval);
+}
+function stopGranular(){ if (grainTimer){ clearInterval(grainTimer); grainTimer=null; } }
+
+function fallbackNoise(ctx){
+  const b = ctx.createBuffer(1, ctx.sampleRate*1.5, ctx.sampleRate);
+  const d = b.getChannelData(0); let x=0; for(let i=0;i<d.length;i++){ x = 0.98*x + (Math.random()*2-1)*0.02; d[i] = x*0.6; }
+  return b;
+}
+
+// ---------- "Musicness" (scale-quantized gentle melody) ----------
+let melTimer=null;
+const SCALE = [0,2,3,5,7,8,10,12];
+function startMelody(){
+  stopMelody();
+  melTimer = setInterval(()=>{
+    const music = parseInt(els.music.value,10)/100;
+    if (music < 0.05) return;
+    const base = pickBaseHzByHour();
+    const deg = SCALE[Math.floor(Math.random()*SCALE.length)];
+    const f = base*2 * Math.pow(2, (deg-12*0.5)/12);
+    const o = audioCtx.createOscillator(); o.type='triangle'; o.frequency.value = f;
+    const g = audioCtx.createGain(); g.gain.value = 0.0;
+    const t = audioCtx.currentTime;
+    g.gain.linearRampToValueAtTime(0.0, t);
+    g.gain.linearRampToValueAtTime(0.20*music, t+0.5);
+    g.gain.linearRampToValueAtTime(0.0, t+2.4);
+    const lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 1800 + lux*0.5;
+    o.connect(lp).connect(g).connect(melBus);
+    o.start(t); o.stop(t+2.6);
+  }, 1500 + Math.random()*1200);
+}
+function stopMelody(){ if (melTimer){ clearInterval(melTimer); melTimer=null; } }
+
+// ---------- Sensors (strong mapping + smooth) ----------
+let lux=200, motionAmt=0, yaw=0, noiseLevel=0;
+function ema(prev, value, a){ return prev==null? value : prev*(1-a)+value*a; }
+let emaLux=null, emaMotion=null, emaNoise=null, emaYaw=null;
+async function ensureMotionPermission(){
+  try{ if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission(); } }catch(e){}
+  window.addEventListener('devicemotion', ev=>{
+    const ax=ev.accelerationIncludingGravity?.x||0, ay=ev.accelerationIncludingGravity?.y||0, az=ev.accelerationIncludingGravity?.z||0;
+    const m = Math.min(1.4, Math.sqrt(ax*ax+ay*ay+az*az)/12);
+    emaMotion = ema(emaMotion, m, 0.15);
+    motionAmt = Math.pow(Math.max(0, emaMotion-0.02), 1.0); // より強く
+    els.motion.textContent = motionAmt.toFixed(2);
+  }, {passive:true});
+}
+function startOrientation(){
+  window.addEventListener('deviceorientation', ev=>{
+    const y = (ev.alpha||0)/360;
+    emaYaw = ema(emaYaw, y, 0.12); yaw = emaYaw||0;
+    els.yaw.textContent = Math.round((yaw*360))+'°';
+  }, {passive:true});
+}
+async function startLight(){
+  els.hour.textContent = new Date().toTimeString().slice(0,5);
+  if ('AmbientLightSensor' in window){
+    try{
+      const sensor = new AmbientLightSensor();
+      sensor.addEventListener('reading', ()=>{
+        emaLux = ema(emaLux, sensor.illuminance, 0.12); lux = emaLux||lux;
+        els.light.textContent = Math.round(lux)+' lux';
+        filt && audioCtx && (filt.frequency.setTargetAtTime(400 + (parseInt(els.bright.value,10)/100)*3200 + Math.min(1500, lux*2), audioCtx.currentTime, 0.25));
+      });
+      sensor.start(); return;
+    }catch(e){}
+  }
+  const h=new Date().getHours(); lux=(h>=7&&h<=17)?500:60; els.light.textContent=Math.round(lux)+' lux(est)';
+}
+function startMicAnalysis(){
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  (async ()=>{
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      const ctx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      if (!audioCtx) audioCtx = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+      setInterval(()=>{
+        const arr = new Uint8Array(an.fftSize/2); an.getByteFrequencyData(arr);
+        let sum=0; for(let i=0;i<arr.length;i++) sum+=arr[i]*arr[i];
+        const rms = Math.sqrt(sum/arr.length)/255;
+        emaNoise = ema(emaNoise, rms, 0.18); noiseLevel = emaNoise||0;
+        const db = 20*Math.log10(Math.max(noiseLevel,1e-6));
+        els.noise.textContent = (db+90).toFixed(1)+' dB';
+        const dens = 0.4 + Math.min(0.6, noiseLevel*2.4);
+        grainBus && (grainBus.gain.value = dens);
+        padBus && (padBus.gain.value = 0.30 + noiseLevel*0.4);
+      }, 120);
+    }catch(e){ log('Mic error '+e); }
+  })();
+}
+async function startGeo(){
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const {latitude,longitude} = pos.coords;
+    els.latlon.textContent = latitude.toFixed(3)+', '+longitude.toFixed(3);
+    const off = ((Math.abs(latitude)%6)-3)/12; // ±0.25oct
+    const base = pickBaseHzByHour();
+    droneLow && audioCtx && droneLow.frequency.setTargetAtTime(base/2 * Math.pow(2, off), audioCtx.currentTime, 1.0);
+    droneHigh && audioCtx && droneHigh.frequency.setTargetAtTime(base   * Math.pow(2, off*0.5), audioCtx.currentTime, 1.0);
+  }, _=>{ els.latlon.textContent='denied'; });
+}
+
+// ---------- Visual ----------
+let particles=[];
+function draw(){
+  const c=els.canvas, ctx=c.getContext('2d');
+  const dpr=Math.min(2, devicePixelRatio||1);
+  const w=c.clientWidth, h=c.clientHeight;
+  if (c.width!==Math.floor(w*dpr) || c.height!==Math.floor(h*dpr)){ c.width=Math.floor(w*dpr); c.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); }
+  const g=ctx.createRadialGradient(w*0.5,h*0.6,Math.min(w,h)*0.05,w*0.5,h*0.6,Math.max(w,h)*0.9);
+  g.addColorStop(0,`rgba(${30+lux*0.05|0},${50+lux*0.04|0},${80+lux*0.06|0},1)`); g.addColorStop(1,'rgba(10,12,16,1)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+  if (particles.length<120){ for(let i=0;i<4;i++) particles.push({x:Math.random()*w,y:Math.random()*h,r:4+Math.random()*10,a:Math.random()*Math.PI*2}); }
+  for(const p of particles){
+    p.r += 0.12 + motionAmt*1.4;
+    if (p.r>Math.max(w,h)*0.5){ p.r = 4; p.x=Math.random()*w; p.y=Math.random()*h; }
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.strokeStyle = `rgba(${140+lux*0.1|0}, ${200+lux*0.05|0}, 255, ${0.03 + motionAmt*0.15})`;
+    ctx.lineWidth = 1 + motionAmt*3; ctx.stroke();
+  }
+  requestAnimationFrame(draw);
+}
+
+// ---------- Helpers ----------
+function pickBaseHzByHour(){
+  const h = new Date().getHours();
+  if (h>=5 && h<11) return 196; if (h>=11 && h<17) return 220; if (h>=17 && h<22) return 174.61; return 155.56;
+}
+
+// ---------- Service Worker ----------
+if('serviceWorker' in navigator){
+  addEventListener('load', async ()=>{
+    const reg = await navigator.serviceWorker.register('./sw.js?v=7');
+    els.btnUpdate.onclick = async ()=>{ const r = await navigator.serviceWorker.getRegistration(); await r?.update(); r?.waiting?.postMessage('SKIP_WAITING'); if (!r?.waiting) location.reload(); };
+  });
+}
+
+// ---------- File loader ----------
+els.file.onchange = async (e)=>{
+  if(!e.target.files?.length) return;
+  setupAudio();
+  const file = e.target.files[0];
+  const arr = await file.arrayBuffer();
+  buf = await audioCtx.decodeAudioData(arr);
+  log('Loaded: ' + file.name + ' ('+buf.duration.toFixed(1)+'s)');
+};
+
+// ---------- Start/Stop ----------
+els.btnStart.onclick = async ()=>{
+  if (running) return;
+  setupAudio();
+  await ensureMotionPermission(); startOrientation(); await startLight(); startMicAnalysis(); await startGeo();
+  startGranular(); startMelody(); draw();
+  running = true; els.btnStart.disabled=true; els.btnStop.disabled=false;
+  log('Started v7 (Sensor Sampler Ambient)');
+};
+els.btnStop.onclick = ()=>{
+  running=false; els.btnStart.disabled=false; els.btnStop.disabled=true;
+  stopGranular(); stopMelody();
+  audioCtx && audioCtx.suspend();
+  log('Stopped');
+};
+</script>
+</body></html>
