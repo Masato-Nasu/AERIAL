@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Audio Smoke Test (root)</title>
+<style>body{font-family:system-ui;padding:24px}button{padding:10px 14px;margin:6px}</style>
+<h1>Audio Smoke Test (root)</h1>
+<p>1) まず「Unlock」を押す → 2) Beep → 3) Chime（存在するなら ../Chime.mp3 を再生）</p>
+<button id="unlock">▶ Unlock</button>
+<button id="beep" disabled>Beep（WebAudio）</button>
+<button id="chime" disabled>Chime（../Chime.mp3）</button>
+<pre id="log" style="background:#111;color:#eee;padding:12px;white-space:pre-wrap"></pre>
+<script>
+const log = (m)=>{ document.getElementById('log').textContent += m + "\n"; console.log(m); };
+let ctx, unlocked=false;
+document.getElementById('unlock').onclick = async ()=>{
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    ctx = new Ctx({latencyHint:'interactive'});
+    await ctx.resume();
+    unlocked=true;
+    document.getElementById('beep').disabled=false;
+    document.getElementById('chime').disabled=false;
+    log('Unlock OK. state='+ctx.state+', sampleRate='+ctx.sampleRate);
+  }catch(e){ log('Unlock error: '+e); }
+};
+document.getElementById('beep').onclick = ()=>{
+  if(!ctx) return;
+  const o=ctx.createOscillator(); const g=ctx.createGain(); g.gain.value=0.2;
+  o.connect(g).connect(ctx.destination); o.frequency.value=660; o.start();
+  setTimeout(()=>{o.stop(); log('Beep done');}, 250);
+};
+document.getElementById('chime').onclick = async ()=>{
+  try{
+    const url = '../Chime.mp3';
+    const a = new Audio(url); a.play().then(()=>log('Chime playing: '+url)).catch(e=>log('Chime play error: '+e));
+  }catch(e){ log('Chime error: '+e); }
+};
+</script>
