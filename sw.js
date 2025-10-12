@@ -1,11 +1,11 @@
-// sw.js v1 — cache for MIDI build
-const SW_VERSION = 'v1';
-const CACHE = 'aerial-midi-' + SW_VERSION;
+// sw.js v2 — Hybrid build
+const SW_VERSION = 'v2';
+const CACHE = 'aerial-hybrid-' + SW_VERSION;
 const ASSETS = [
   './',
-  './index.html?v=1',
-  './midi.html?v=1',
-  './manifest.json?v=1',
+  './index.html?v=5',
+  './hybrid.html?v=5',
+  './manifest.json?v=5',
   './icon-192.png',
   './icon-512.png'
 ];
