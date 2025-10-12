@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v9.5 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=9.5"/>
+<title>AERIAL v9.6 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=9.6"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,16 +19,23 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v9.5 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v9.6 — Distributable Edition</h1>
     <div class="row">
       
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="60"/>
       <label>BGM</label>
-      <select id="bgmMode"><option value="auto">SonicWeather</option><option value="file">ファイル</option></select>
+      \1<option value="auto">SonicWeather</option><option value="file">ファイル</option>\2
       <input id="bgmFile" type="file" accept="audio/*" style="display:none"/>
       
-    </div>
+    
+<div class="row" id="debugRow" style="margin-top:8px">
+  <span class="muted">Audio: <span id="dbgState">idle</span></span>
+  <span class="muted" style="margin-left:10px">SR: <span id="dbgSR">-</span></span>
+  <span class="muted" style="margin-left:10px">t: <span id="dbgT">-</span></span>
+  <button id="forceUnlock" style="margin-left:10px">▶ Force Unlock</button>
+</div>
+
     <p class="muted">開いた瞬間に稼働します。動かない場合のみ画面タップで解放。傾きでTheremin（正弦波）、振るとチャイム。</p>
   </section>
 </main>
@@ -38,7 +45,7 @@
   <button id="btnUnlock">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v9.5 Distributable: Instant-ready with fallback unlock ===== */
+/* ===== v9.6 Distributable: Instant-ready with fallback unlock ===== */
 let audioCtx=null, masterG, limiter;
 let padNodes=[], padGain, filter, reverb, lfo, lfoGain, noiseSrc, noiseGain;
 let therOsc, therGain;
@@ -68,7 +75,7 @@ async function initRecorder(){ if(!audioCtx) return; if(audioCtx.audioWorklet &&
   recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
 }
 
-async function setup(){
+async function setup(gestureBuild=false){
   if(audioCtx) return;
   audioCtx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
   masterG=audioCtx.createGain(); masterG.gain.value=parseInt(masterEl.value,10)/100;
@@ -162,18 +169,24 @@ bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const ur
 btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); await ensureRunning(); btnPause.textContent='⏸ Pause'; } };
 
 /* Start immediately with fallback overlay */
-(async function boot(){
-  await setup(); await ensureRunning();
-  // Try auto-unlock
-  autoUnlockAttempt();
-  // If still suspended after a tick, show overlay
-  setTimeout(async ()=>{
-    if(audioCtx.state!=='running'){ showUnlock(); }
-  }, 500);
-})();
+// boot removed; gesture-first start
 
 // Overlay button and global interactions to unlock
+
 async function unlockNow(){
+  try{
+    if(!audioCtx){
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctx({latencyHint:'interactive'});
+    }
+    await setup(true); // gestureBuild = true
+    await audioCtx.resume();
+    // 1-sample tick
+    const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start();
+    hideUnlock();
+  }catch(e){ console.warn(e); window._lastError=e&&e.message||String(e); }
+}
+
   try{
     if(!audioCtx) await setup(); await ensureRunning();
     // iOS permission request if available
@@ -185,6 +198,21 @@ async function unlockNow(){
 }
 ['pointerdown','touchstart','keydown'].forEach(ev=>{ window.addEventListener(ev, unlockNow, {once:false,passive:true}); });
 btnUnlock.onclick = unlockNow;
+
+function updateDebug(){
+  try{
+    if(!audioCtx){ dbgState.textContent='no-ctx'; return; }
+    dbgState.textContent = audioCtx.state;
+    dbgSR.textContent = audioCtx.sampleRate;
+    dbgT.textContent = audioCtx.currentTime.toFixed(2);
+  }catch(e){}
+}
+setInterval(updateDebug, 300);
+const dbgState=document.getElementById('dbgState');
+const dbgSR=document.getElementById('dbgSR');
+const dbgT=document.getElementById('dbgT');
+document.getElementById('forceUnlock').onclick = unlockNow;
+
 
 // Keep context alive on user interactions and tab focus
 ['pointerdown','touchstart','keydown','click','visibilitychange'].forEach(ev=>{
