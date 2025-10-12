@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v7.3 — Abstract Sampler Theremin</title>
+<link rel="manifest" href="manifest.json?v=73"/><link rel="icon" href="icon-192.png" sizes="192x192"/>
+<style>
+  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,'Noto Sans JP',sans-serif}
+  main{max-width:1100px;margin:0 auto;padding:14px;display:grid;grid-template-columns:1.1fr .9fr;gap:12px}
+  @media (max-width:920px){main{grid-template-columns:1fr}}
+  .card{background:#12151b;border:1px solid #1f242c;border-radius:14px;padding:14px}
+  h1{font-size:18px;margin:0 0 10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input[type=range],button,select,input[type=file]{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:10px;padding:8px 10px;font-size:14px}
+  .kv{display:inline-flex;gap:6px;align-items:center;background:#0f1320;border:1px solid #253043;border-radius:12px;padding:8px 10px;font-size:13px;margin:4px 4px 0 0}
+  .muted{color:var(--muted);font-size:12px}
+  #canvas{width:100%;height:260px;background: radial-gradient(800px 600px at 50% 60%, #1a1f29, #0b0c0f); border:1px solid #1f242c; border-radius:12px;}
+  #log{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;background:#0f1320;border:1px solid #253043;border-radius:10px;padding:8px}
+  label{font-size:12px;color:#a7b2c0;margin-right:6px}
+</style>
+</head><body>
+<main>
+  <section class="card">
+    <h1>Abstract Sampler Theremin — 任意音源×姿勢×高度</h1>
+    <canvas id="canvas"></canvas>
+    <div class="row" style="margin-top:8px">
+      <input id="file" type="file" accept="audio/*"/>
+      <button id="btnStart">▶ Start</button>
+      <button id="btnStop" disabled>⏹ Stop</button>
+      <button id="btnUpdate">🔄 Force Reload</button>
+      <span class="muted">音量は小さめに設定。イヤホン推奨。</span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <strong style="width:100%">🎚 Theremin（かわいい音）</strong>
+      <label>Pitch Range</label><input id="pmin" type="range" min="120" max="500" value="180"/><input id="pmax" type="range" min="500" max="1800" value="960"/>
+      <label>Vibrato</label><input id="vib" type="range" min="0" max="100" value="30"/>
+      <label>Sweet</label><input id="sweet" type="range" min="0" max="100" value="60"/>
+      <label>Alt Sens</label><input id="alts" type="range" min="50" max="400" value="130"/>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <strong style="width:100%">🌀 Abstract Sampler（任意音源の抽象化）</strong>
+      <label>Reactivity</label><input id="react" type="range" min="0" max="100" value="75"/>
+      <label>Density</label><input id="dens" type="range" min="0" max="100" value="65"/>
+      <label>Color</label><input id="color" type="range" min="0" max="100" value="45"/>
+      <label>Pitch Jitter</label><input id="jitter" type="range" min="0" max="100" value="20"/>
+    </div>
+    <div class="muted" style="margin-top:6px">衝撃→ユーザーチャイムを再生（感度は控えめ）。画面に「はじけ」エフェクト。</div>
+  </section>
+
+  <section class="card">
+    <h1>Sensors</h1>
+    <div class="row">
+      <div class="kv">Yaw <span id="yaw">--°</span></div>
+      <div class="kv">Pitch <span id="pitch">--°</span></div>
+      <div class="kv">Roll <span id="roll">--°</span></div>
+      <div class="kv">Altitude <span id="alt">-- m</span></div>
+      <div class="kv">Impact <span id="imp">--</span></div>
+      <div class="kv">Motion <span id="motion">--</span></div>
+    </div>
+    <div style="margin-top:10px"><div id="log"></div></div>
+  </section>
+</main>
+
+<script>
+const els = {
+  canvas: document.getElementById('canvas'),
+  file: document.getElementById('file'),
+  btnStart: document.getElementById('btnStart'),
+  btnStop: document.getElementById('btnStop'),
+  btnUpdate: document.getElementById('btnUpdate'),
+  pmin: document.getElementById('pmin'), pmax: document.getElementById('pmax'),
+  vib: document.getElementById('vib'), sweet: document.getElementById('sweet'), alts: document.getElementById('alts'),
+  react: document.getElementById('react'), dens: document.getElementById('dens'), color: document.getElementById('color'), jitter: document.getElementById('jitter'),
+  yaw: document.getElementById('yaw'), pitch: document.getElementById('pitch'), roll: document.getElementById('roll'),
+  alt: document.getElementById('alt'), imp: document.getElementById('imp'), motion: document.getElementById('motion'),
+  log: document.getElementById('log'),
+};
+function log(s){ els.log.textContent = (new Date()).toLocaleTimeString() + '  ' + s + "\n" + els.log.textContent; }
+
+// ---------- Audio ----------
+let audioCtx, master;
+let therOsc, therGain, vibOsc, vibGain, sweetShaper, lp, cuteChorus;
+let running=false, wakeLock=null;
+let yawN=0.5, pitchN=0.5, rollN=0.5, altitudeM=null, baseAlt=null;
+let lastAccMag=null, lastChime=0;
+
+// sampler
+let buf=null, grainTimer=null, grainBus, samplerFilter;
+
+// chime
+let chimeBuf=null, burst=0;
+
+function setupAudio(){
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  master = audioCtx.createGain(); master.gain.value = 0.6; master.connect(audioCtx.destination); // 全体小さめ
+
+  // Cute theremin voice: sine + gentle waveshaper + light LP + mini-chorus
+  therOsc = audioCtx.createOscillator(); therOsc.type='sine';
+  vibOsc  = audioCtx.createOscillator(); vibOsc.type='sine'; vibOsc.frequency.value = 5;
+  vibGain = audioCtx.createGain(); vibGain.gain.value = 0; vibOsc.connect(vibGain).connect(therOsc.frequency);
+  sweetShaper = audioCtx.createWaveShaper(); sweetShaper.curve = makeCuteCurve(4096, 0.2);
+  lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.Q.value = 0.8; lp.frequency.value = 3800;
+  therGain = audioCtx.createGain(); therGain.gain.value = 0.05; // 小さめ
+  // subtle chorus (short delay mod)
+  const delay = audioCtx.createDelay(); delay.delayTime.value = 0.008;
+  const lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.8;
+  const lfoG = audioCtx.createGain(); lfoG.gain.value = 0.004; lfo.connect(lfoG).connect(delay.delayTime); lfo.start();
+
+  therOsc.connect(sweetShaper).connect(lp).connect(delay).connect(therGain).connect(master);
+  therOsc.connect(lp).connect(therGain); // dry path too
+  therOsc.start(); vibOsc.start();
+
+  // Sampler bus
+  grainBus = audioCtx.createGain(); grainBus.gain.value = 0.35; grainBus.connect(master);
+  samplerFilter = audioCtx.createBiquadFilter(); samplerFilter.type='bandpass'; samplerFilter.frequency.value = 1000; samplerFilter.Q.value = 0.6;
+  samplerFilter.connect(grainBus);
+
+  // Try preload chime
+  fetch('chime.mp3').then(r=>r.arrayBuffer()).then(a=>audioCtx.decodeAudioData(a)).then(b=>{ chimeBuf=b; }).catch(()=>{});
+}
+
+function makeCuteCurve(n, amt){
+  const c = new Float32Array(n); for(let i=0;i<n;i++){ const x = (i/n)*2-1; c[i] = Math.tanh(x*(1+amt*2))*0.85; } return c;
+}
+
+function startGranular(){
+  stopGranular();
+  const baseInterval = 100;
+  const react = parseInt(els.react.value,10)/100;
+  const dens = parseInt(els.dens.value,10)/100;
+  const jitter = parseInt(els.jitter.value,10)/100;
+  const interval = baseInterval * (1.0 - dens*0.5);
+  grainTimer = setInterval(()=>{
+    if (!audioCtx) return;
+    const motion = Math.pow(motionAmt, 0.7);
+    const rate = 0.8 + yawN*0.6 + motion*0.4;
+    const dur = 0.08 + motion*0.22 + react*0.15;
+    const off = Math.random() * Math.max(0.01, (buf? buf.duration : 1) - dur);
+    const g = audioCtx.createBufferSource();
+    g.buffer = buf || fallbackNoise(audioCtx);
+    const detune = (pitchN-0.5)*400 + (Math.random()*2-1)*jitter*300; // cents
+    g.playbackRate.value = rate;
+    try{ g.detune.value = detune; }catch(e){}
+    const env = audioCtx.createGain(); env.gain.value = 0;
+    const t = audioCtx.currentTime;
+    env.gain.linearRampToValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(1, t + dur*0.35);
+    env.gain.linearRampToValueAtTime(0.0, t + dur);
+    const bp = audioCtx.createBiquadFilter(); bp.type='bandpass';
+    const col = parseInt(els.color.value,10)/100;
+    bp.frequency.value = 400 + col*2400 + rollN*800;
+    g.connect(bp).connect(env).connect(samplerFilter);
+    g.start(t, off, dur);
+  }, interval);
+}
+function stopGranular(){ if (grainTimer){ clearInterval(grainTimer); grainTimer=null; } }
+
+function fallbackNoise(ctx){
+  const b = ctx.createBuffer(1, ctx.sampleRate*1.5, ctx.sampleRate);
+  const d = b.getChannelData(0); let x=0; for(let i=0;i<d.length;i++){ x=0.98*x+(Math.random()*2-1)*0.02; d[i]=x*0.55; } return b;
+}
+
+// Theremin update
+function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+function updateTheremin(){
+  const pmin = parseFloat(els.pmin.value), pmax = parseFloat(els.pmax.value);
+  const pitchHz = pmin + (pmax - pmin) * clamp01((pitchN*1.04 + yawN*0.10));
+  therOsc.frequency.setTargetAtTime(pitchHz, audioCtx.currentTime, 0.02);
+
+  // vibrato depth from slider + yaw
+  const vib = parseInt(els.vib.value,10)/100;
+  vibOsc.frequency.setTargetAtTime(4 + yawN*6, audioCtx.currentTime, 0.2);
+  vibGain.gain.setTargetAtTime(vib * (1.5 + rollN*2.5), audioCtx.currentTime, 0.2);
+
+  // sweetness (waveshaper intensity + LP)
+  const sw = parseInt(els.sweet.value,10)/100;
+  sweetShaper.curve = makeCuteCurve(4096, 0.15 + sw*0.35);
+  lp.frequency.setTargetAtTime(2500 + sw*2500, audioCtx.currentTime, 0.25);
+
+  // altitude-controlled volume — 強めに効かせる（Alt Sensで調整）
+  let vol = 0.05;
+  if (altitudeM!=null){
+    if (baseAlt==null) baseAlt = altitudeM;
+    const sens = parseInt(els.alts.value,10)/100; // 0.5..4.0
+    const relM = (altitudeM - baseAlt); // meters
+    const rel = clamp01( 0.5 + relM * 0.12 * sens ); // 1mあたり強めに
+    vol = 0.03 + rel*0.7;
+  }
+  therGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.15);
+}
+
+// Sensors
+let motionAmt=0;
+async function ensureMotionPermission(){
+  try{
+    if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission(); }
+    if (typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){ try{ await DeviceOrientationEvent.requestPermission(); }catch(e){} }
+  }catch(e){}
+  window.addEventListener('deviceorientation', ev=>{
+    const a=(ev.alpha||0), b=(ev.beta||0), g=(ev.gamma||0);
+    yawN = (a%360)/360; pitchN = (b + 180)/360; rollN = (g + 90)/180;
+    els.yaw.textContent = Math.round(a)+'°'; els.pitch.textContent = Math.round(b)+'°'; els.roll.textContent = Math.round(g)+'°';
+    if (audioCtx) updateTheremin();
+  }, {passive:true});
+
+  window.addEventListener('devicemotion', ev=>{
+    const ax=ev.accelerationIncludingGravity?.x||0, ay=ev.accelerationIncludingGravity?.y||0, az=ev.accelerationIncludingGravity?.z||0;
+    const mag = Math.sqrt(ax*ax+ay*ay+az*az);
+    motionAmt = Math.min(1.6, mag/10);
+    els.motion.textContent = motionAmt.toFixed(2);
+    // impact -> chime (鈍感め、クールダウン長め)
+    let jerk=0; if (lastAccMag!=null) jerk=Math.abs(mag-lastAccMag); lastAccMag=mag;
+    const threshold = 3.2; // 少し鈍感に
+    if (jerk > threshold && (performance.now()-lastChime)>1200){
+      lastChime = performance.now();
+      els.imp.textContent = '🔔 ' + jerk.toFixed(2);
+      triggerChime();
+      triggerBurst();
+    }
+  }, {passive:true});
+}
+
+async function startAltitude(){
+  if (!navigator.geolocation){ els.alt.textContent='N/A'; return; }
+  navigator.geolocation.watchPosition(pos=>{
+    altitudeM = (pos.coords.altitude!=null) ? pos.coords.altitude : null;
+    els.alt.textContent = altitudeM==null? '—' : altitudeM.toFixed(1)+' m';
+    if (audioCtx) updateTheremin();
+  }, _=>{ els.alt.textContent='denied'; }, { enableHighAccuracy:true, maximumAge:500, timeout:4000 });
+}
+
+// File loader
+els.file.onchange = async (e)=>{
+  if(!e.target.files?.length) return;
+  const file = e.target.files[0];
+  const ab = await file.arrayBuffer();
+  if (!audioCtx) setupAudio();
+  buf = await audioCtx.decodeAudioData(ab);
+  log('Loaded sample: '+file.name+' ('+buf.duration.toFixed(1)+'s)');
+};
+
+// Granular
+function startAll(){
+  if (running) return;
+  setupAudio();
+  ensureMotionPermission(); startAltitude();
+  startGranular();
+  running=true; els.btnStart.disabled=true; els.btnStop.disabled=false;
+  draw(); log('Started v7.3 Abstract Theremin');
+}
+function stopAll(){
+  running=false; els.btnStart.disabled=false; els.btnStop.disabled=true;
+  stopGranular(); audioCtx && audioCtx.suspend(); log('Stopped');
+}
+els.btnStart.onclick = startAll; els.btnStop.onclick = stopAll;
+
+// Chime using buffer (user-provided)
+function triggerChime(){
+  if (!audioCtx) return;
+  const vol = 0.3; // 小さめ
+  const g = audioCtx.createGain(); g.gain.value = 0; g.connect(master);
+  const t = audioCtx.currentTime;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t+0.01); g.gain.exponentialRampToValueAtTime(0.0008, t+2.2);
+  if (chimeBuf){
+    const s = audioCtx.createBufferSource(); s.buffer = chimeBuf; s.connect(g); s.start(t);
+  }else{
+    // fallback simple bell
+    const base=880, parts=[1,2,2.4,3]; parts.forEach(p=>{ const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.value=base*p; o.connect(g); o.start(t); o.stop(t+2.2); });
+  }
+}
+
+// Visual — burst on chime
+let particles=[]; let burst=0;
+function triggerBurst(){ burst = 1.0; }
+
+function draw(){
+  const c=els.canvas, ctx=c.getContext('2d');
+  const dpr=Math.min(2, devicePixelRatio||1), w=c.clientWidth, h=c.clientHeight;
+  if (c.width!==Math.floor(w*dpr) || c.height!==Math.floor(h*dpr)){ c.width=Math.floor(w*dpr); c.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); }
+  const hue = 210 + (yawN*60|0);
+  const baseAlpha = 0.9 + burst*0.3;
+  const g=ctx.createRadialGradient(w*0.5,h*0.55,Math.min(w,h)*0.05,w*0.5,h*0.6,Math.max(w,h)*0.9);
+  g.addColorStop(0,`hsla(${hue},60%,${40+rollN*25|0}%,${Math.min(1, baseAlpha)})`); g.addColorStop(1,'rgba(10,12,16,1)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+
+  if (particles.length<140){ for(let i=0;i<3;i++) particles.push({x:Math.random()*w,y:Math.random()*h,r:4+Math.random()*10,v:(Math.random()*2+0.5)}); }
+  for(const p of particles){
+    p.r += 0.08 + pitchN*0.6 + burst*p.v*2.0;
+    if (p.r>Math.max(w,h)*0.5){ p.r = 4; p.x=Math.random()*w; p.y=Math.random()*h; }
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.strokeStyle = `hsla(${hue},70%,75%,${0.02 + pitchN*0.1 + burst*0.15})`;
+    ctx.lineWidth = 1 + rollN*2 + burst*2; ctx.stroke();
+  }
+  burst *= 0.92; // decay
+  requestAnimationFrame(draw);
+}
+
+// SW
+if('serviceWorker' in navigator){
+  addEventListener('load', async ()=>{
+    const reg = await navigator.serviceWorker.register('./sw.js?v=73');
+    els.btnUpdate.onclick = async ()=>{ const r = await navigator.serviceWorker.getRegistration(); await r?.update(); r?.waiting?.postMessage('SKIP_WAITING'); if (!r?.waiting) location.reload(); };
+  });
+}
+</script>
+</body></html>
