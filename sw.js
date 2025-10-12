@@ -1,40 +1,25 @@
-
-// sw.js v8.2 — reliable update & relative paths
-const SW_VERSION = "v8.2";
-const CACHE = "aerial-" + SW_VERSION;
-
+// sw.js v8.2 — AERIAL
+const SW_VERSION = 'v8.2';
+const CACHE = 'aerial-' + SW_VERSION;
 const ASSETS = [
-  "./",
-  "./index.html?v=8.2",
-  "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png"
+  './',
+  './index.html?v=8.2',
+  './hum-theremin-recorder.html?v=8.2',
+  './manifest.json?v=8.2',
+  './icon-192.png',
+  './icon-512.png',
+  './chime.mp3'
 ];
-
-self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); });
+self.addEventListener('activate', (e) => { e.waitUntil((async () => { const keys = await caches.keys(); await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))); await self.clients.claim(); })()); });
+self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET') return;
+  if (url.pathname.endsWith('.html') || url.pathname === '/' ) {
+    e.respondWith((async () => {
+      try { const net = await fetch(e.request); const cache = await caches.open(CACHE); cache.put(e.request, net.clone()); return net; }
+      catch { const cache = await caches.open(CACHE); const cached = await cache.match(e.request); return cached || new Response('Offline', { status: 503 }); }
+    })());
+  } else { e.respondWith(caches.match(e.request).then(res => res || fetch(e.request))); }
 });
-
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => (k !== CACHE ? caches.delete(k) : null)))
-    ).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("fetch", (e) => {
-  const req = e.request;
-  e.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((cache) => cache.put(req, copy));
-        return res;
-      }).catch(() => cached);
-      return cached || fetchPromise;
-    })
-  );
-});
+self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
