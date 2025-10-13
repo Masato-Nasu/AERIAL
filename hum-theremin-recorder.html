@@ -26,6 +26,8 @@
       <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="60"/>
       <label>BGM</label>
       <select id="bgmMode"><option value="auto">SonicWeather</option><option value="preset-warm">Preset: Warm Drone</option><option value="preset-pulse">Preset: Deep Pulse</option><option value="preset-bell">Preset: Soft Bells</option><option value="file">ファイル</option></select>
+      <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="90"/>
+      <label>出力</label><select id="outDev"><option value="">システム既定</option></select>
       <input id="bgmFile" type="file" accept=".mp3,.m4a,.wav,.ogg,.flac,.aac" style="display:none"/>
       <button id="recStart">🎙 Start Recording</button><button id="recStop" disabled>⏹ Stop</button><span id="recStatus" class="muted">Idle</span>
     </div>
@@ -128,6 +130,67 @@ function peakAt180(deg){
 }
 /* === End of custom additions === */
 
+/* === Live controls & Output routing === */
+const bgmVolEl = document.getElementById('bgmVol');
+const outDevEl = document.getElementById('outDev');
+
+// Live Master / Theremin gain
+masterEl.oninput = ()=>{ if(masterG) masterG.gain.value = parseInt(masterEl.value,10)/100; };
+thgainEl.oninput = ()=>{ if(therGain) therGain.gain.value = parseInt(thgainEl.value,10)/100*0.06; };
+bgmVolEl.oninput = ()=>{ if(bgmGain) bgmGain.gain.value = parseInt(bgmVolEl.value,10)/100; };
+
+// Output routing via setSinkId (Chrome等). We switch limiter's destination between AudioContext.destination and a MediaStreamDestination->HTMLAudioElement.
+let mediaDest = null, outEl = null, routingMode = 'default';
+function ensureMediaDest(){
+  if(!audioCtx) return;
+  if(!mediaDest){
+    mediaDest = audioCtx.createMediaStreamDestination();
+  }
+  if(!outEl){
+    outEl = new Audio();
+    outEl.autoplay = true;
+    outEl.muted = false;
+    try{ outEl.srcObject = mediaDest.stream; outEl.play(); }catch(e){}
+  }
+}
+function routeOutputDefault(){
+  try{ limiter.disconnect(); }catch(e){}
+  limiter.connect(audioCtx.destination);
+  routingMode = 'default';
+}
+async function routeOutputToSinkId(sinkId){
+  if(typeof HTMLMediaElement.prototype.setSinkId !== 'function'){
+    // Fallback to default device
+    routeOutputDefault();
+    return;
+  }
+  ensureMediaDest();
+  try{ limiter.disconnect(); }catch(e){}
+  limiter.connect(mediaDest);
+  try{ await outEl.setSinkId(sinkId || 'default'); }catch(e){ /* ignore */ }
+  routingMode = 'sink';
+}
+
+// Populate audio output devices
+async function refreshOutputs(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const outs = devs.filter(d=>d.kind==='audiooutput');
+    // Reset options
+    outDevEl.innerHTML = '<option value=\"\">システム既定</option>' + outs.map(d=>{
+      const label = d.label || '出力デバイス';
+      return `<option value="${d.deviceId}">${label}</option>`;
+    }).join('');
+  }catch(e){}
+}
+outDevEl.onchange = async (e)=>{
+  const id = outDevEl.value;
+  if(id){ await routeOutputToSinkId(id); }
+  else{ routeOutputDefault(); }
+};
+
+
 let audioCtx=null, masterG, limiter;
 let padNodes=[], padGain, filter, reverb, lfo, lfoGain, noiseSrc, noiseGain;
 let therOsc, therGain;
@@ -184,7 +247,7 @@ async function setup(){
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
   // Optional file BGM
-  bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous'; bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=0.9; bgmSrc.connect(bgmGain).connect(masterG);
+  bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous'; bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=0.9; try{ bgmVolEl.value = 90; }catch(e){} bgmSrc.connect(bgmGain).connect(masterG);
 
   await initRecorder();
   initSensors();
@@ -264,6 +327,9 @@ btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'
 /* Start immediately with fallback overlay */
 (async function boot(){
   await setup();
+  // Output routing init
+  routeOutputDefault();
+  refreshOutputs();
   updateBGMMixByMode();
   // Try auto-unlock
   autoUnlockAttempt();
@@ -277,6 +343,9 @@ btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'
 async function unlockNow(){
   try{
     if(!audioCtx) await setup();
+  // Output routing init
+  routeOutputDefault();
+  refreshOutputs();
     // iOS permission request if available
     try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
     await audioCtx.resume();
@@ -289,5 +358,14 @@ btnUnlock.onclick = unlockNow;
 
 /* Recording hooks */
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
+</script>
+
+<script>
+// SW register (also from player page to ensure updates even when this page is bookmarked)
+if('serviceWorker' in navigator){
+  addEventListener('load', async ()=>{
+    try{ await navigator.serviceWorker.register('./sw.js?v=17&bust='+Date.now()); }catch(e){}
+  });
+}
 </script>
 </body></html>
