@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v17.4 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=17.4"/>
+<title>AERIAL v18 — Theremin + Recorder</title>
+<link rel="manifest" href="manifest.json?v=18"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -10,7 +10,8 @@
   main{max-width:980px;margin:0 auto;padding:14px}
   .card{background:#12151b;border:1px solid #1f242c;border-radius:12px;padding:12px;margin:12px 0}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  button,input,select{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:8px 10px}
+  button,input,label{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:8px 10px}
+  input[type="range"]{accent-color:#8fd3ff}
   .muted{color:var(--muted);font-size:13px}
   #burst{position:fixed;inset:0;pointer-events:none;z-index:5}
   #unlock{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:10}
@@ -19,20 +20,15 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v17.4 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v18 — Theremin + Recorder</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="60"/>
-      <label>BGM</label>
-      <select id="bgmMode"><option value="auto">SonicWeather</option><option value="preset-warm">Preset: Warm Drone</option><option value="preset-pulse">Preset: Deep Pulse</option><option value="preset-bell">Preset: Soft Bells</option><option value="file">ファイル</option></select>
-      <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="90"/>
-      <label>出力</label><select id="outDev"><option value="">システム既定</option></select><button id="refreshOut">再取得</button>
-      <input id="bgmFile" type="file" accept=".mp3,.m4a,.wav,.ogg,.flac,.aac" style="display:none"/><button id="bgmChoose" style="display:none">選択…</button>
+      <label>音楽を選択</label><input id="bgmFile" type="file" accept="audio/*"/>
       <button id="recStart">🎙 Start Recording</button><button id="recStop" disabled>⏹ Stop</button><span id="recStatus" class="muted">Idle</span>
     </div>
-    <div id="msg" class="muted" style="margin-top:6px"></div>
-    <p class="muted">開いた瞬間に稼働します。動かない場合のみ画面タップで解放。傾きでTheremin（正弦波）、振るとチャイム。録音はWAV保存。マイクは使いません。</p>
+    <p class="muted">動作：傾き→テルミン（連続ピッチ）、強く振る→チャイム。BGMはファイル選択のみ。BGM選択中はテルミン＋BGMのみを出力。録音はWAV保存。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
@@ -41,252 +37,27 @@
   <button id="btnUnlock">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v17 Distributable: Instant-ready with fallback unlock ===== */
-/* === Custom additions for v17 requirements === */
-let presetNodes = null; // active preset graph root
-function stopPreset(){
-  if(!audioCtx) return;
-  if(presetNodes && presetNodes.length){
-    try{ presetNodes.forEach(n=>{ try{ n.stop && n.stop(0); }catch(e){} try{ n.disconnect && n.disconnect(); }catch(e){} }); }catch(e){}
-  }
-  presetNodes = null;
-}
-function muteSonicWeather(isMute){
-  if(!audioCtx) return;
-  try{
-    padGain && (padGain.gain.cancelScheduledValues(audioCtx.currentTime), padGain.gain.setTargetAtTime(isMute?0.0001:0.18, audioCtx.currentTime, 0.15));
-    noiseGain && (noiseGain.gain.cancelScheduledValues(audioCtx.currentTime), noiseGain.gain.setTargetAtTime(isMute?0.0001:0.02, audioCtx.currentTime, 0.15));
-    lfo && (lfo.frequency.setTargetAtTime(isMute?0.05:0.09, audioCtx.currentTime, 0.2));
-  }catch(e){}
-}
-function startPreset(kind){
-  if(!audioCtx) return;
-  stopPreset();
-  muteSonicWeather(true);
-  const nodes=[];
-  const outG = audioCtx.createGain(); outG.gain.value = 0.6; outG.connect(masterG);
-  if(kind==='preset-warm'){
-    // 3 detuned sines with slow LFO and gentle LP filter
-    const filt = audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=1200; filt.Q.value=0.3; filt.connect(outG);
-    const lfo = audioCtx.createOscillator(); lfo.frequency.value=0.07; const lg=audioCtx.createGain(); lg.gain.value=400; lfo.connect(lg).connect(filt.frequency); lfo.start();
-    const base = 196;
-    [0, -3, +5].forEach((st,i)=>{
-      const o = audioCtx.createOscillator(); o.type='sine'; o.frequency.value = base * Math.pow(2, st/12);
-      const g = audioCtx.createGain(); g.gain.value = 0.18 - i*0.04; o.connect(g).connect(filt); o.start();
-      nodes.push(o,g);
-    });
-    nodes.push(filt,lfo,lg,outG);
-  }else if(kind==='preset-pulse'){
-    // Sub + click pulse using AM
-    const carrier = audioCtx.createOscillator(); carrier.type='sawtooth'; carrier.frequency.value=90;
-    const amp = audioCtx.createGain(); amp.gain.value=0.18;
-    const lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=1.2;
-    const lg = audioCtx.createGain(); lg.gain.value=0.5; lfo.connect(lg).connect(amp.gain);
-    const filt = audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=800;
-    carrier.connect(amp).connect(filt).connect(outG); carrier.start(); lfo.start();
-    nodes.push(carrier,amp,lfo,lg,filt,outG);
-  }else if(kind==='preset-bell'){
-    // Soft FM-like bell burst loop
-    const g = audioCtx.createGain(); g.gain.value=0.0; g.connect(outG);
-    function ping(){
-      const t=audioCtx.currentTime;
-      const c=audioCtx.createOscillator(); c.type='sine'; c.frequency.setValueAtTime(660,t);
-      const m=audioCtx.createOscillator(); m.type='sine'; m.frequency.setValueAtTime(220,t);
-      const mg=audioCtx.createGain(); mg.gain.setValueAtTime(220,t);
-      m.connect(mg).connect(c.frequency);
-      const eg=audioCtx.createGain(); eg.gain.setValueAtTime(0.0,t);
-      eg.gain.linearRampToValueAtTime(0.25,t+0.02);
-      eg.gain.exponentialRampToValueAtTime(0.0001,t+1.2);
-      c.connect(eg).connect(g);
-      c.start(t); m.start(t);
-      c.stop(t+1.25); m.stop(t+1.25);
-      nodes.push(c,m,mg,eg);
-    }
-    // periodic pings
-    const int = setInterval(()=>{ try{ ping(); }catch(e){} }, 1600);
-    nodes.push(g,{stop:()=>clearInterval(int)});
-  }
-  presetNodes = nodes;
-}
-function updateBGMMixByMode(){
-  const mode = bgmMode.value;
-  if(mode==='auto'){
-    stopPreset();
-    muteSonicWeather(false);
-    if(bgmEl){ bgmEl.pause(); bgmEl.src=''; }
-  }else if(mode==='file'){
-    stopPreset();
-    muteSonicWeather(true);
-  }else if(mode.startsWith('preset-')){
-    if(bgmEl){ bgmEl.pause(); bgmEl.src=''; }
-    startPreset(mode);
-  }
-}
-
-// --- Angle mapping helpers to make pitch/roll "mountain" at ±180 and smooth across wrap ---
-function peakAt180(deg){
-  // Map degree so that 180/-180 are peaks (1.0), 0 is valley (0.0), continuous over wrap
-  const d = Math.abs(wrap180(deg - 180));
-  return (Math.cos(d * Math.PI/180) + 1) / 2; // 0..1
-}
-/* === End of custom additions === */
-
-/* === v17.3: Robust unlock, outputs refresh with permission, friendlier BGM file select === */
-const msg = document.getElementById('msg');
-const bgmChooseBtn = document.getElementById('bgmChoose');
-const refreshOutBtn = document.getElementById('refreshOut');
-
-function logMsg(t){ try{ msg.textContent = t; }catch(e){} }
-
-async function ensureDeviceLabels(){
-  // Request minimal mic permission once, then stop immediately; labels become available.
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-  try{
-    const s = await navigator.mediaDevices.getUserMedia({audio:true});
-    // stop tracks immediately
-    try{ s.getTracks().forEach(tr=>tr.stop()); }catch(e){}
-  }catch(e){
-    // user may deny; continue without labels
-  }
-}
-
-async function refreshOutputsWithPermission(){
-  await ensureDeviceLabels();
-  await refreshOutputs();
-  logMsg('出力デバイス一覧を更新しました。');
-}
-
-// Gentle test beep (for confirming routing after sink change)
-function testBeep(){
-  if(!audioCtx) return;
-  try{
-    const t=audioCtx.currentTime;
-    const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(660,t);
-    const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(0.15, t+0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t+0.20);
-    o.connect(g).connect(masterG);
-    o.start(t); o.stop(t+0.22);
-  }catch(e){}
-}
-
-refreshOutBtn.onclick = async ()=>{
-  await refreshOutputsWithPermission();
-};
-
-bgmChooseBtn.onclick = ()=>{
-  try{ bgmFile.click(); }catch(e){}
-};
-
-// Enhance mode change UI handling
-const updateBgmUiByMode = ()=>{
-  const isFile = (bgmMode.value==='file');
-  bgmFile.style.display = isFile ? 'inline-block' : 'none';
-  bgmChooseBtn.style.display = isFile ? 'inline-block' : 'none';
-};
-
-// Override onload handler to guarantee unlock after first gesture and show clear guidance
-btnUnlock.textContent = '▶ タップして開始（音を解放）';
-
-
-/* === Live controls & Output routing === */
-const bgmVolEl = document.getElementById('bgmVol');
-const outDevEl = document.getElementById('outDev');
-
-// Live Master / Theremin gain
-masterEl.oninput = ()=>{ if(masterG) masterG.gain.value = parseInt(masterEl.value,10)/100; };
-thgainEl.oninput = ()=>{ if(therGain) therGain.gain.value = parseInt(thgainEl.value,10)/100*0.06; };
-bgmVolEl.oninput = ()=>{ if(bgmGain) bgmGain.gain.value = parseInt(bgmVolEl.value,10)/100; };
-
-// Output routing via setSinkId (Chrome等). We switch limiter's destination between AudioContext.destination and a MediaStreamDestination->HTMLAudioElement.
-
-let mediaDest = null, outEl = null, routingMode = 'default';
-function ensureMediaDest(){
-  if(!audioCtx) return;
-  if(!mediaDest){
-    mediaDest = audioCtx.createMediaStreamDestination();
-  }
-  if(!outEl){
-    outEl = new Audio();
-    outEl.autoplay = true;
-    outEl.muted = false;
-    try{ outEl.srcObject = mediaDest.stream; }catch(e){}
-  }
-}
-
-  if(!outEl){
-    outEl = new Audio();
-    outEl.autoplay = true;
-    outEl.muted = false;
-    try{ outEl.srcObject = mediaDest.stream; outEl.play(); }catch(e){}
-  }
-}
-
-function routeOutputDefault(){
-  try{ limiter.disconnect(); }catch(e){}
-  try{ limiter.connect(audioCtx.destination); }catch(e){}
-  routingMode = 'default';
-}
-catch(e){}
-  limiter.connect(audioCtx.destination);
-  routingMode = 'default';
-}
-async function routeOutputToSinkId(sinkId){
-  if(typeof HTMLMediaElement.prototype.setSinkId !== 'function'){
-    // Fallback to default device
-    routeOutputDefault();
-    return;
-  }
-  ensureMediaDest();
-  try{ limiter.disconnect(); }catch(e){}
-  limiter.connect(mediaDest);
-  try{ await outEl.setSinkId(sinkId || 'default'); }catch(e){ /* ignore */ }
-  routingMode = 'sink';
-}
-
-// Populate audio output devices
-async function refreshOutputs(){
-  if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
-  try{
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    const outs = devs.filter(d=>d.kind==='audiooutput');
-    // Reset options
-    outDevEl.innerHTML = '<option value=\"\">システム既定</option>' + outs.map(d=>{
-      const label = d.label || '出力デバイス';
-      return `<option value="${d.deviceId}">${label}</option>`;
-    }).join('');
-  }catch(e){}
-}
-outDevEl.onchange = async (e)=>{
-  const id = outDevEl.value;
-  if(id){ await routeOutputToSinkId(id); }
-  else{ routeOutputDefault(); }
-  testBeep();
-  logMsg('出力を切り替えました');
-};
-
-
+/* ===== v18: clean graph (Theremin+BGM only), circular-smooth angles, file-only BGM ===== */
 let audioCtx=null, masterG, limiter;
-let padNodes=[], padGain, filter, reverb, lfo, lfoGain, noiseSrc, noiseGain;
 let therOsc, therGain;
 let bgmEl=null, bgmSrc=null, bgmGain=null;
 let chimeBuf=null, chimeGain;
 let recNode, recBuffers=[], recording=false, recSampleRate=48000;
+
 const masterEl=document.getElementById('master'), thgainEl=document.getElementById('thgain');
-const bgmMode=document.getElementById('bgmMode'), bgmFile=document.getElementById('bgmFile');
+const bgmFile=document.getElementById('bgmFile');
 const recStartBtn=document.getElementById('recStart'), recStopBtn=document.getElementById('recStop'), recStatus=document.getElementById('recStatus');
 const btnPause=document.getElementById('btnPause');
 const overlay=document.getElementById('unlock'), btnUnlock=document.getElementById('btnUnlock');
 
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-function pickBaseHzByHour(){const h=new Date().getHours(); if(h>=5&&h<11)return 196; if(h>=11&&h<17)return 220; if(h>=17&&h<22)return 174.61; return 155.56;}
-function makeImpulseResponse(ctx,duration=2.6,decay=5.5,reverse=false){const rate=ctx.sampleRate,length=rate*duration,imp=ctx.createBuffer(2,length,rate);for(let ch=0;ch<2;ch++){const data=imp.getChannelData(ch);for(let i=0;i<length;i++){const t=reverse?(length-i):i;data[i]=(Math.random()*2-1)*Math.pow(1-t/length,decay);}}return imp;}
 
 async function initRecorder(){ if(!audioCtx) return; if(audioCtx.audioWorklet && audioCtx.audioWorklet._addedMixTap) return;
   const code=`class MixTap extends AudioWorkletProcessor{process(inputs){const ch=inputs[0]?.[0];if(ch)this.port.postMessage(ch);return true;}}registerProcessor('mix-tap',MixTap);`;
   const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob);
   await audioCtx.audioWorklet.addModule(url); audioCtx.audioWorklet._addedMixTap=true;
-  recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
+  recNode=new AudioWorkletNode(audioCtx,'mix-tap');
+  const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
   recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
 }
 function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
@@ -300,76 +71,72 @@ async function setup(){
   limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-8;limiter.knee.value=12;limiter.ratio.value=12;limiter.attack.value=0.003;limiter.release.value=0.25;
   masterG.connect(limiter).connect(audioCtx.destination);
 
-  // BGM auto-gen path
-  const reverb= (function(){const rv=audioCtx.createConvolver(); rv.buffer=makeImpulseResponse(audioCtx,2.6,5.5,true); return rv;})();
-  const revOut=audioCtx.createGain(); revOut.gain.value=0.25; reverb.connect(revOut).connect(masterG);
-  filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=800;
-  padGain=audioCtx.createGain(); padGain.gain.value=0.18; padGain.connect(filter); filter.connect(reverb); filter.connect(masterG);
-  lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.09; lfoGain=audioCtx.createGain(); lfoGain.gain.value=200; lfo.connect(lfoGain); lfoGain.connect(filter.frequency); lfo.start();
-  const base=pickBaseHzByHour(); const ratios=[1,5/4,3/2,2];
-  for(let r of ratios){ const o=audioCtx.createOscillator(); o.type='sawtooth'; o.frequency.value=base*r*(1+(Math.random()-0.5)*0.01);
-    const vib=audioCtx.createOscillator(); vib.type='sine'; vib.frequency.value=0.12+Math.random()*0.12; const vg=audioCtx.createGain(); vg.gain.value=1.2+Math.random()*0.8; vib.connect(vg).connect(o.frequency); vib.start();
-    const g=audioCtx.createGain(); g.gain.value=0.09; o.connect(g); g.connect(padGain); o.start(); padNodes.push(o,vib,g); }
-  const noiseBuf=audioCtx.createBuffer(1,audioCtx.sampleRate*4,audioCtx.sampleRate); const ch=noiseBuf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*0.9;
-  noiseSrc=audioCtx.createBufferSource(); noiseSrc.buffer=noiseBuf; noiseSrc.loop=true; const nFilter=audioCtx.createBiquadFilter(); nFilter.type='highpass'; nFilter.frequency.value=500; noiseGain=audioCtx.createGain(); noiseGain.gain.value=0.02; noiseSrc.connect(nFilter).connect(noiseGain).connect(revOut); noiseSrc.start();
-
-  // Theremin (sine)
+  // Theremin
   therOsc=audioCtx.createOscillator(); therOsc.type='sine'; therGain=audioCtx.createGain(); therGain.gain.value=parseInt(thgainEl.value,10)/100*0.06; therOsc.connect(therGain).connect(masterG); therOsc.start();
 
   // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
-
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
-  // Optional file BGM
-  bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous'; bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=0.9; try{ bgmVolEl.value = 90; }catch(e){} bgmSrc.connect(bgmGain).connect(masterG);
+  // BGM (file only)
+  bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
+  bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=0.9; bgmSrc.connect(bgmGain).connect(masterG);
 
   await initRecorder();
   initSensors();
 }
 
-function autoUnlockAttempt(){
-  if(!audioCtx){ return; }
-  audioCtx.resume().then(()=>{
-    try{ const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start(); }catch(e){}
-  }).catch(()=>{});
-}
-
 function showUnlock(){ overlay.style.display='flex'; }
 function hideUnlock(){ overlay.style.display='none'; }
 
-/* Sensors */
-const state={yaw:0,pitch:0,roll:0}; const ALPHA=0.09;
-function wrap180(a){return a>180?a-360:a;} function angDiff(a,b){let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;} function smoothAngles(a,b){return b+angDiff(a,b)*ALPHA;} function sinMap(deg){return Math.sin(deg*Math.PI/180);}
-
+/* ===== Orientation: circular smoothing (avoid 360→0 jumps) ===== */
+const state={yaw:0,pitch:0,roll:0};
+const ALPHA=0.12;
+function lerp(a,b,t){return a+(b-a)*t;}
+function smoothCircular(prevDeg, nextDeg){ // vector補間で discontinuity 解消
+  const pr = prevDeg*Math.PI/180, nr = nextDeg*Math.PI/180;
+  const sx = Math.cos(pr), sy = Math.sin(pr);
+  const tx = Math.cos(nr), ty = Math.sin(nr);
+  const bx = lerp(sx, tx, ALPHA), by = lerp(sy, ty, ALPHA);
+  return (Math.atan2(by, bx)*180/Math.PI);
+}
 function handleOrient(e){
-  const yawRaw=(typeof e.alpha==='number')?wrap180(e.alpha):0;
-  const pitchRaw=(typeof e.beta==='number')?e.beta:0;
-  const rollRaw=(typeof e.gamma==='number')?e.gamma:0;
-  state.yaw=smoothAngles(yawRaw,state.yaw);
-  state.pitch=smoothAngles(pitchRaw,state.pitch);
-  state.roll=smoothAngles(rollRaw,state.roll);
-  const sy = sinMap(state.yaw);          // keep yaw as sine
-  const spM = peakAt180(state.pitch);    // 0..1, peak at ±180
-  const srM = peakAt180(state.roll);     // 0..1, peak at ±180
-  // center them to -0.5..+0.5 for musical mapping
-  const sp = spM - 0.5;
-  const sr = srM - 0.5;
+  const yawRaw = (typeof e.alpha==='number') ? e.alpha : 0;   // 0..360
+  const pitchRaw = (typeof e.beta==='number') ? e.beta : 0;   // -180..180
+  const rollRaw = (typeof e.gamma==='number') ? e.gamma : 0;  // -90..90
+
+  state.yaw = smoothCircular(state.yaw, yawRaw);
+  state.pitch = smoothCircular(state.pitch, 90+pitchRaw)-90;
+  state.roll = smoothCircular(state.roll, rollRaw);
+
+  // 周期連続な sin マップで滑らかにつなぐ
+  const ny = Math.sin(state.yaw*Math.PI/180);
+  const np = Math.sin(state.pitch*Math.PI/180);
   const base=220, range=880;
-  const mix = (sy*0.4) + (sp*0.35) + (sr*0.25);
-  const f = base + clamp(mix, -1, 1) * range;
+  const f=base + (ny*0.45 + np*0.55)*range;
   if(therOsc && audioCtx){
     therOsc.frequency.setTargetAtTime(clamp(f,40,3000),audioCtx.currentTime,0.03);
-    const volBase = 0.02 + (srM)*0.08*(parseInt(thgainEl.value,10)/100);
-    therGain && (therGain.gain.linearRampToValueAtTime(volBase, audioCtx.currentTime+0.05));
   }
+
+  // ロール→音量（完全0は避ける）
+  const volBase = 0.03;
+  const volSpan = 0.09*(parseInt(thgainEl.value,10)/100);
+  const vol = volBase + ((Math.sin(state.roll*Math.PI/180)+1)/2)*volSpan;
+  if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
 }
-function handleMotion(e){ const a=e.accelerationIncludingGravity; if(!a) return; const mag=Math.hypot(a.x||0,a.y||0,a.z||0); const now=performance.now();
+function handleMotion(e){
+  const a=e.accelerationIncludingGravity; if(!a) return;
+  const mag=Math.hypot(a.x||0,a.y||0,a.z||0);
+  const now=performance.now();
   if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); }
-  const motionAmt=Math.min(1,mag/20); padGain.gain.linearRampToValueAtTime(0.12+motionAmt*0.18,audioCtx.currentTime+0.1); lfo.frequency.linearRampToValueAtTime(0.05+motionAmt*0.6,audioCtx.currentTime+0.2);
 }
-async function initSensors(){ try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){} window.addEventListener('deviceorientation',handleOrient,true); window.addEventListener('devicemotion',handleMotion,true);
-  window.addEventListener('pointermove',(ev)=>{const w=innerWidth,h=innerHeight;const nx=(ev.clientX/w)*2-1;const ny=(ev.clientY/h)*2-1;handleOrient({alpha:nx*90,beta:ny*60,gamma:0});},{passive:true}); }
+async function initSensors(){
+  try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
+  window.addEventListener('deviceorientation',handleOrient,true);
+  window.addEventListener('devicemotion',handleMotion,true);
+  // Pointer fallback
+  window.addEventListener('pointermove',(ev)=>{const w=innerWidth,h=innerHeight;const nx=(ev.clientX/w)*360;const ny=(ev.clientY/h)*180-90;handleOrient({alpha:nx,beta:ny,gamma:0});},{passive:true});
+}
 
 function playChime(){ if(!chimeBuf||!audioCtx) return; const s=audioCtx.createBufferSource(); s.buffer=chimeBuf; s.connect(chimeGain); s.start(); }
 
@@ -381,96 +148,39 @@ function triggerBurst(){ burstT=performance.now(); }
 
 /* Recorder UI */
 function startRec(){ if(!audioCtx) return; recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
-function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v17_1_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
+function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v18_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
 
-/* BGM file */
-
-bgmMode.onchange=()=>{ updateBgmUiByMode(); updateBGMMixByMode(); };
-
-
+/* BGM (file only) */
 bgmFile.onchange=async (e)=>{
   const f=e.target.files[0]; if(!f) return;
   const url=URL.createObjectURL(f); bgmEl.src=url;
-  try{ await bgmEl.play(); muteSonicWeather(true); logMsg('BGMファイルを再生中'); }
-  catch(err){ logMsg('BGM再生を開始できませんでした：' + (err && err.name ? err.name : '')); }
+  try{ await bgmEl.play(); }catch(e){}
 };
 
 /* Pause/Resume */
+btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
 
-btnPause.onclick=async ()=>{
-  if(!audioCtx) return;
-  if(audioCtx.state==='running'){
-    await audioCtx.suspend();
-  } else {
-    await audioCtx.resume();
-  }
-  btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
-};
-
-
-/* Start immediately with fallback overlay */
-
-
+/* Boot */
 (async function boot(){
-  // Show overlay immediately; wait for user gesture to init audio graph
-  showUnlock();
-  logMsg('タップで開始します。開始後に出力とBGMを設定できます。');
-  // prepare outputs list (labels may appear after権限許可)
-  refreshOutputs();
-  btnPause.textContent = '▶ Resume';
+  await setup();
+  setTimeout(async ()=>{ if(audioCtx.state!=='running'){ overlay.style.display='flex'; } }, 300);
 })();
-
-
-// Overlay button and global interactions to unlock
 
 async function unlockNow(){
   try{
     if(!audioCtx) await setup();
-    // iOS permission request if available
     try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
-    await audioCtx.resume();
-    // ensure default routing
-    routeOutputDefault();
-    // tick silent + test beep
-    try{
-      const s = audioCtx.createBufferSource();
-      s.buffer = audioCtx.createBuffer(1,1,audioCtx.sampleRate);
-      s.connect(audioCtx.destination); s.start();
-    }catch(e){}
-    // short audible beep to confirm
-    try{
-      const t=audioCtx.currentTime;
-      const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(660,t);
-      const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t);
-      g.gain.exponentialRampToValueAtTime(0.15, t+0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t+0.20);
-      o.connect(g).connect(masterG);
-      o.start(t); o.stop(t+0.22);
-    }catch(e){}
-    hideUnlock();
-    btnPause.textContent = '⏸ Pause';
-    logMsg('音を解放しました');
-  }catch(e){ console.warn(e); }
-}
-);} }catch(e){}
     await audioCtx.resume();
     const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start();
     hideUnlock();
   }catch(e){ console.warn(e); }
 }
 ['pointerdown','touchstart','keydown'].forEach(ev=>{ window.addEventListener(ev, unlockNow, {once:false,passive:true}); });
-btnUnlock.onclick = async ()=>{ await unlockNow(); testBeep(); logMsg('音を解放しました'); };
+btnUnlock.onclick = unlockNow;
 
-/* Recording hooks */
+/* Hooks */
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
-</script>
-
-<script>
-// SW register (also from player page to ensure updates even when this page is bookmarked)
-if('serviceWorker' in navigator){
-  addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=17.4&bust='+Date.now()); }catch(e){}
-  });
-}
+masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
+thgainEl.oninput=()=>{};
 </script>
 </body></html>
