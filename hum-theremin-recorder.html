@@ -25,8 +25,8 @@
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="60"/>
       <label>BGM</label>
-      <select id="bgmMode"><option value="auto">SonicWeather</option><option value="file">ファイル</option></select>
-      <input id="bgmFile" type="file" accept="audio/*" style="display:none"/>
+      <select id="bgmMode"><option value="auto">SonicWeather</option><option value="preset-warm">Preset: Warm Drone</option><option value="preset-pulse">Preset: Deep Pulse</option><option value="preset-bell">Preset: Soft Bells</option><option value="file">ファイル</option></select>
+      <input id="bgmFile" type="file" accept=".mp3,.m4a,.wav,.ogg,.flac,.aac" style="display:none"/>
       <button id="recStart">🎙 Start Recording</button><button id="recStop" disabled>⏹ Stop</button><span id="recStatus" class="muted">Idle</span>
     </div>
     <p class="muted">開いた瞬間に稼働します。動かない場合のみ画面タップで解放。傾きでTheremin（正弦波）、振るとチャイム。録音はWAV保存。マイクは使いません。</p>
@@ -39,6 +39,95 @@
 </div></div>
 <script>
 /* ===== v17 Distributable: Instant-ready with fallback unlock ===== */
+/* === Custom additions for v17 requirements === */
+let presetNodes = null; // active preset graph root
+function stopPreset(){
+  if(!audioCtx) return;
+  if(presetNodes && presetNodes.length){
+    try{ presetNodes.forEach(n=>{ try{ n.stop && n.stop(0); }catch(e){} try{ n.disconnect && n.disconnect(); }catch(e){} }); }catch(e){}
+  }
+  presetNodes = null;
+}
+function muteSonicWeather(isMute){
+  if(!audioCtx) return;
+  try{
+    padGain && (padGain.gain.cancelScheduledValues(audioCtx.currentTime), padGain.gain.setTargetAtTime(isMute?0.0001:0.18, audioCtx.currentTime, 0.15));
+    noiseGain && (noiseGain.gain.cancelScheduledValues(audioCtx.currentTime), noiseGain.gain.setTargetAtTime(isMute?0.0001:0.02, audioCtx.currentTime, 0.15));
+    lfo && (lfo.frequency.setTargetAtTime(isMute?0.05:0.09, audioCtx.currentTime, 0.2));
+  }catch(e){}
+}
+function startPreset(kind){
+  if(!audioCtx) return;
+  stopPreset();
+  muteSonicWeather(true);
+  const nodes=[];
+  const outG = audioCtx.createGain(); outG.gain.value = 0.6; outG.connect(masterG);
+  if(kind==='preset-warm'){
+    // 3 detuned sines with slow LFO and gentle LP filter
+    const filt = audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=1200; filt.Q.value=0.3; filt.connect(outG);
+    const lfo = audioCtx.createOscillator(); lfo.frequency.value=0.07; const lg=audioCtx.createGain(); lg.gain.value=400; lfo.connect(lg).connect(filt.frequency); lfo.start();
+    const base = 196;
+    [0, -3, +5].forEach((st,i)=>{
+      const o = audioCtx.createOscillator(); o.type='sine'; o.frequency.value = base * Math.pow(2, st/12);
+      const g = audioCtx.createGain(); g.gain.value = 0.18 - i*0.04; o.connect(g).connect(filt); o.start();
+      nodes.push(o,g);
+    });
+    nodes.push(filt,lfo,lg,outG);
+  }else if(kind==='preset-pulse'){
+    // Sub + click pulse using AM
+    const carrier = audioCtx.createOscillator(); carrier.type='sawtooth'; carrier.frequency.value=90;
+    const amp = audioCtx.createGain(); amp.gain.value=0.18;
+    const lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=1.2;
+    const lg = audioCtx.createGain(); lg.gain.value=0.5; lfo.connect(lg).connect(amp.gain);
+    const filt = audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=800;
+    carrier.connect(amp).connect(filt).connect(outG); carrier.start(); lfo.start();
+    nodes.push(carrier,amp,lfo,lg,filt,outG);
+  }else if(kind==='preset-bell'){
+    // Soft FM-like bell burst loop
+    const g = audioCtx.createGain(); g.gain.value=0.0; g.connect(outG);
+    function ping(){
+      const t=audioCtx.currentTime;
+      const c=audioCtx.createOscillator(); c.type='sine'; c.frequency.setValueAtTime(660,t);
+      const m=audioCtx.createOscillator(); m.type='sine'; m.frequency.setValueAtTime(220,t);
+      const mg=audioCtx.createGain(); mg.gain.setValueAtTime(220,t);
+      m.connect(mg).connect(c.frequency);
+      const eg=audioCtx.createGain(); eg.gain.setValueAtTime(0.0,t);
+      eg.gain.linearRampToValueAtTime(0.25,t+0.02);
+      eg.gain.exponentialRampToValueAtTime(0.0001,t+1.2);
+      c.connect(eg).connect(g);
+      c.start(t); m.start(t);
+      c.stop(t+1.25); m.stop(t+1.25);
+      nodes.push(c,m,mg,eg);
+    }
+    // periodic pings
+    const int = setInterval(()=>{ try{ ping(); }catch(e){} }, 1600);
+    nodes.push(g,{stop:()=>clearInterval(int)});
+  }
+  presetNodes = nodes;
+}
+function updateBGMMixByMode(){
+  const mode = bgmMode.value;
+  if(mode==='auto'){
+    stopPreset();
+    muteSonicWeather(false);
+    if(bgmEl){ bgmEl.pause(); bgmEl.src=''; }
+  }else if(mode==='file'){
+    stopPreset();
+    muteSonicWeather(true);
+  }else if(mode.startsWith('preset-')){
+    if(bgmEl){ bgmEl.pause(); bgmEl.src=''; }
+    startPreset(mode);
+  }
+}
+
+// --- Angle mapping helpers to make pitch/roll "mountain" at ±180 and smooth across wrap ---
+function peakAt180(deg){
+  // Map degree so that 180/-180 are peaks (1.0), 0 is valley (0.0), continuous over wrap
+  const d = Math.abs(wrap180(deg - 180));
+  return (Math.cos(d * Math.PI/180) + 1) / 2; // 0..1
+}
+/* === End of custom additions === */
+
 let audioCtx=null, masterG, limiter;
 let padNodes=[], padGain, filter, reverb, lfo, lfoGain, noiseSrc, noiseGain;
 let therOsc, therGain;
@@ -114,11 +203,28 @@ function hideUnlock(){ overlay.style.display='none'; }
 /* Sensors */
 const state={yaw:0,pitch:0,roll:0}; const ALPHA=0.09;
 function wrap180(a){return a>180?a-360:a;} function angDiff(a,b){let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;} function smoothAngles(a,b){return b+angDiff(a,b)*ALPHA;} function sinMap(deg){return Math.sin(deg*Math.PI/180);}
-function handleOrient(e){ const yawRaw=(typeof e.alpha==='number')?wrap180(e.alpha):0; const pitchRaw=(typeof e.beta==='number')?e.beta:0; const rollRaw=(typeof e.gamma==='number')?e.gamma:0;
-  state.yaw=smoothAngles(yawRaw,state.yaw); state.pitch=smoothAngles(pitchRaw,state.pitch); state.roll=smoothAngles(rollRaw,state.roll);
-  const sy=sinMap(state.yaw), sp=sinMap(state.pitch); const base=220, range=880; const f=base+(sy*0.45+sp*0.55)*range;
-  therOsc && audioCtx && therOsc.frequency.setTargetAtTime(clamp(f,40,3000),audioCtx.currentTime,0.03);
-  const vol=0.02+(sinMap(state.roll)+1)/2*0.08*(parseInt(thgainEl.value,10)/100); therGain && audioCtx && (therGain.gain.linearRampToValueAtTime(vol,audioCtx.currentTime+0.05));
+
+function handleOrient(e){
+  const yawRaw=(typeof e.alpha==='number')?wrap180(e.alpha):0;
+  const pitchRaw=(typeof e.beta==='number')?e.beta:0;
+  const rollRaw=(typeof e.gamma==='number')?e.gamma:0;
+  state.yaw=smoothAngles(yawRaw,state.yaw);
+  state.pitch=smoothAngles(pitchRaw,state.pitch);
+  state.roll=smoothAngles(rollRaw,state.roll);
+  const sy = sinMap(state.yaw);          // keep yaw as sine
+  const spM = peakAt180(state.pitch);    // 0..1, peak at ±180
+  const srM = peakAt180(state.roll);     // 0..1, peak at ±180
+  // center them to -0.5..+0.5 for musical mapping
+  const sp = spM - 0.5;
+  const sr = srM - 0.5;
+  const base=220, range=880;
+  const mix = (sy*0.4) + (sp*0.35) + (sr*0.25);
+  const f = base + clamp(mix, -1, 1) * range;
+  if(therOsc && audioCtx){
+    therOsc.frequency.setTargetAtTime(clamp(f,40,3000),audioCtx.currentTime,0.03);
+    const volBase = 0.02 + (srM)*0.08*(parseInt(thgainEl.value,10)/100);
+    therGain && (therGain.gain.linearRampToValueAtTime(volBase, audioCtx.currentTime+0.05));
+  }
 }
 function handleMotion(e){ const a=e.accelerationIncludingGravity; if(!a) return; const mag=Math.hypot(a.x||0,a.y||0,a.z||0); const now=performance.now();
   if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); }
@@ -140,8 +246,17 @@ function startRec(){ if(!audioCtx) return; recBuffers.length=0; recording=true; 
 function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v17_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
 
 /* BGM file */
-bgmMode.onchange=()=>{ bgmFile.style.display = (bgmMode.value==='file')?'inline-block':'none'; if(bgmMode.value!=='file' && bgmEl){ bgmEl.pause(); bgmEl.src=''; } };
-bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
+
+bgmMode.onchange=()=>{
+  bgmFile.style.display = (bgmMode.value==='file')?'inline-block':'none';
+  updateBGMMixByMode();
+};
+
+bgmFile.onchange=async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  const url=URL.createObjectURL(f); bgmEl.src=url;
+  try{ await bgmEl.play(); muteSonicWeather(true); }catch(e){}
+};
 
 /* Pause/Resume */
 btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
@@ -149,6 +264,7 @@ btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'
 /* Start immediately with fallback overlay */
 (async function boot(){
   await setup();
+  updateBGMMixByMode();
   // Try auto-unlock
   autoUnlockAttempt();
   // If still suspended after a tick, show overlay
