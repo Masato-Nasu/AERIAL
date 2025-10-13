@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v17 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=17"/>
+<title>AERIAL v17.1 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=17.1"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,7 +19,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v17 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v17.1 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -306,7 +306,7 @@ function triggerBurst(){ burstT=performance.now(); }
 
 /* Recorder UI */
 function startRec(){ if(!audioCtx) return; recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
-function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v17_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
+function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v17_1_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
 
 /* BGM file */
 
@@ -364,7 +364,7 @@ recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 // SW register (also from player page to ensure updates even when this page is bookmarked)
 if('serviceWorker' in navigator){
   addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=17&bust='+Date.now()); }catch(e){}
+    try{ await navigator.serviceWorker.register('./sw.js?v=17.1&bust='+Date.now()); }catch(e){}
   });
 }
 </script>
