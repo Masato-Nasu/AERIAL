@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>AERIAL v16</title>
+<link rel="manifest" href="manifest.json?v=16"/>
+<link rel="icon" href="icon-192.png?v=16" sizes="192x192"/>
+<style>
+  body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
+  .wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
+  a{color:#8fd3ff;text-decoration:none;padding:10px 14px;border:1px solid #253043;border-radius:10px;background:#0f1320}
+</style>
+</head><body>
+
+</div>
+<script>
+// SW register
+if('serviceWorker' in navigator){
+  addEventListener('load', async ()=>{
+    try{ await navigator.serviceWorker.register('./sw.js?v=16'+Date.now()); }catch(e){}
+  });
+}
+</script>
+</body></html>
