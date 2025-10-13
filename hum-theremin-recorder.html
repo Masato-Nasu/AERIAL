@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v17.2 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=17.2"/>
+<title>AERIAL v17.3 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=17.3"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,7 +19,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v17.2 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v17.3 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -27,10 +27,11 @@
       <label>BGM</label>
       <select id="bgmMode"><option value="auto">SonicWeather</option><option value="preset-warm">Preset: Warm Drone</option><option value="preset-pulse">Preset: Deep Pulse</option><option value="preset-bell">Preset: Soft Bells</option><option value="file">ファイル</option></select>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="90"/>
-      <label>出力</label><select id="outDev"><option value="">システム既定</option></select>
-      <input id="bgmFile" type="file" accept=".mp3,.m4a,.wav,.ogg,.flac,.aac" style="display:none"/>
+      <label>出力</label><select id="outDev"><option value="">システム既定</option></select><button id="refreshOut">再取得</button>
+      <input id="bgmFile" type="file" accept=".mp3,.m4a,.wav,.ogg,.flac,.aac" style="display:none"/><button id="bgmChoose" style="display:none">選択…</button>
       <button id="recStart">🎙 Start Recording</button><button id="recStop" disabled>⏹ Stop</button><span id="recStatus" class="muted">Idle</span>
     </div>
+    <div id="msg" class="muted" style="margin-top:6px"></div>
     <p class="muted">開いた瞬間に稼働します。動かない場合のみ画面タップで解放。傾きでTheremin（正弦波）、振るとチャイム。録音はWAV保存。マイクは使いません。</p>
   </section>
 </main>
@@ -130,6 +131,64 @@ function peakAt180(deg){
 }
 /* === End of custom additions === */
 
+/* === v17.3: Robust unlock, outputs refresh with permission, friendlier BGM file select === */
+const msg = document.getElementById('msg');
+const bgmChooseBtn = document.getElementById('bgmChoose');
+const refreshOutBtn = document.getElementById('refreshOut');
+
+function logMsg(t){ try{ msg.textContent = t; }catch(e){} }
+
+async function ensureDeviceLabels(){
+  // Request minimal mic permission once, then stop immediately; labels become available.
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  try{
+    const s = await navigator.mediaDevices.getUserMedia({audio:true});
+    // stop tracks immediately
+    try{ s.getTracks().forEach(tr=>tr.stop()); }catch(e){}
+  }catch(e){
+    // user may deny; continue without labels
+  }
+}
+
+async function refreshOutputsWithPermission(){
+  await ensureDeviceLabels();
+  await refreshOutputs();
+  logMsg('出力デバイス一覧を更新しました。');
+}
+
+// Gentle test beep (for confirming routing after sink change)
+function testBeep(){
+  if(!audioCtx) return;
+  try{
+    const t=audioCtx.currentTime;
+    const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(660,t);
+    const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.15, t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+0.20);
+    o.connect(g).connect(masterG);
+    o.start(t); o.stop(t+0.22);
+  }catch(e){}
+}
+
+refreshOutBtn.onclick = async ()=>{
+  await refreshOutputsWithPermission();
+};
+
+bgmChooseBtn.onclick = ()=>{
+  try{ bgmFile.click(); }catch(e){}
+};
+
+// Enhance mode change UI handling
+const updateBgmUiByMode = ()=>{
+  const isFile = (bgmMode.value==='file');
+  bgmFile.style.display = isFile ? 'inline-block' : 'none';
+  bgmChooseBtn.style.display = isFile ? 'inline-block' : 'none';
+};
+
+// Override onload handler to guarantee unlock after first gesture and show clear guidance
+btnUnlock.textContent = '▶ タップして開始（音を解放）';
+
+
 /* === Live controls & Output routing === */
 const bgmVolEl = document.getElementById('bgmVol');
 const outDevEl = document.getElementById('outDev');
@@ -202,6 +261,8 @@ outDevEl.onchange = async (e)=>{
   const id = outDevEl.value;
   if(id){ await routeOutputToSinkId(id); }
   else{ routeOutputDefault(); }
+  testBeep();
+  logMsg('出力を切り替えました');
 };
 
 
@@ -324,15 +385,14 @@ function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disa
 
 /* BGM file */
 
-bgmMode.onchange=()=>{
-  bgmFile.style.display = (bgmMode.value==='file')?'inline-block':'none';
-  updateBGMMixByMode();
-};
+bgmMode.onchange=()=>{ updateBgmUiByMode(); updateBGMMixByMode(); };
+
 
 bgmFile.onchange=async (e)=>{
   const f=e.target.files[0]; if(!f) return;
   const url=URL.createObjectURL(f); bgmEl.src=url;
-  try{ await bgmEl.play(); muteSonicWeather(true); }catch(e){}
+  try{ await bgmEl.play(); muteSonicWeather(true); logMsg('BGMファイルを再生中'); }
+  catch(err){ logMsg('BGM再生を開始できませんでした：' + (err && err.name ? err.name : '')); }
 };
 
 /* Pause/Resume */
@@ -355,6 +415,8 @@ btnPause.onclick=async ()=>{
   // Default routing and outputs
   routeOutputDefault();
   refreshOutputs();
+  updateBgmUiByMode();
+  logMsg('最初に画面をタップして音を解放してください。出力デバイスは「再取得」で一覧化できます。');
   // Try resume; if blocked, show overlay
   try{ await audioCtx.resume(); }catch(e){}
   btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
@@ -388,6 +450,8 @@ async function unlockNow(){
   // Output routing init
   routeOutputDefault();
   refreshOutputs();
+  updateBgmUiByMode();
+  logMsg('最初に画面をタップして音を解放してください。出力デバイスは「再取得」で一覧化できます。');
     // iOS permission request if available
     try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
     await audioCtx.resume();
@@ -396,7 +460,7 @@ async function unlockNow(){
   }catch(e){ console.warn(e); }
 }
 ['pointerdown','touchstart','keydown'].forEach(ev=>{ window.addEventListener(ev, unlockNow, {once:false,passive:true}); });
-btnUnlock.onclick = unlockNow;
+btnUnlock.onclick = async ()=>{ await unlockNow(); testBeep(); logMsg('音を解放しました'); };
 
 /* Recording hooks */
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
@@ -406,7 +470,7 @@ recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 // SW register (also from player page to ensure updates even when this page is bookmarked)
 if('serviceWorker' in navigator){
   addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=17.2&bust='+Date.now()); }catch(e){}
+    try{ await navigator.serviceWorker.register('./sw.js?v=17.3&bust='+Date.now()); }catch(e){}
   });
 }
 </script>
