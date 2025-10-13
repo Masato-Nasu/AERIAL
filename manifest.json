@@ -1,7 +1,7 @@
 {
-  "name": "AERIAL v17.3 — Distributable Edition",
+  "name": "AERIAL v17.4 — Distributable Edition",
   "short_name": "AERIAL",
-  "start_url": "./index.html?v=17.3",
+  "start_url": "./index.html?v=17.4",
   "display": "standalone",
   "background_color": "#0b0d11",
   "theme_color": "#0b0d11",

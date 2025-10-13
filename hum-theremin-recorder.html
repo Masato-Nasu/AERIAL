@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v17.3 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=17.3"/>
+<title>AERIAL v17.4 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=17.4"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,7 +19,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v17.3 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v17.4 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -410,50 +410,49 @@ btnPause.onclick=async ()=>{
 
 /* Start immediately with fallback overlay */
 
+
 (async function boot(){
-  await setup();
-  // Default routing and outputs
-  routeOutputDefault();
+  // Show overlay immediately; wait for user gesture to init audio graph
+  showUnlock();
+  logMsg('タップで開始します。開始後に出力とBGMを設定できます。');
+  // prepare outputs list (labels may appear after権限許可)
   refreshOutputs();
-  updateBgmUiByMode();
-  logMsg('最初に画面をタップして音を解放してください。出力デバイスは「再取得」で一覧化できます。');
-  // Try resume; if blocked, show overlay
-  try{ await audioCtx.resume(); }catch(e){}
-  btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
-  audioCtx.onstatechange = ()=>{
-    btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
-  };
-  // Fallback unlock on first user gesture
-  const unlockOnce = async ()=>{
-    try{
-      await audioCtx.resume();
-      // tick a silent buffer to unlock
-      const s = audioCtx.createBufferSource();
-      s.buffer = audioCtx.createBuffer(1,1,audioCtx.sampleRate);
-      s.connect(audioCtx.destination); s.start();
-      hideUnlock();
-    }catch(e){}
-  };
-  ['pointerdown','touchstart','keydown'].forEach(ev=>{
-    window.addEventListener(ev, unlockOnce, {once:true,passive:true});
-  });
-  // If still suspended after a moment, show overlay
-  setTimeout(()=>{
-    if(audioCtx.state!=='running'){ showUnlock(); }
-  }, 500);
+  btnPause.textContent = '▶ Resume';
 })();
 
+
 // Overlay button and global interactions to unlock
+
 async function unlockNow(){
   try{
     if(!audioCtx) await setup();
-  // Output routing init
-  routeOutputDefault();
-  refreshOutputs();
-  updateBgmUiByMode();
-  logMsg('最初に画面をタップして音を解放してください。出力デバイスは「再取得」で一覧化できます。');
     // iOS permission request if available
     try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
+    await audioCtx.resume();
+    // ensure default routing
+    routeOutputDefault();
+    // tick silent + test beep
+    try{
+      const s = audioCtx.createBufferSource();
+      s.buffer = audioCtx.createBuffer(1,1,audioCtx.sampleRate);
+      s.connect(audioCtx.destination); s.start();
+    }catch(e){}
+    // short audible beep to confirm
+    try{
+      const t=audioCtx.currentTime;
+      const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(660,t);
+      const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.15, t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.20);
+      o.connect(g).connect(masterG);
+      o.start(t); o.stop(t+0.22);
+    }catch(e){}
+    hideUnlock();
+    btnPause.textContent = '⏸ Pause';
+    logMsg('音を解放しました');
+  }catch(e){ console.warn(e); }
+}
+);} }catch(e){}
     await audioCtx.resume();
     const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start();
     hideUnlock();
@@ -470,7 +469,7 @@ recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 // SW register (also from player page to ensure updates even when this page is bookmarked)
 if('serviceWorker' in navigator){
   addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=17.3&bust='+Date.now()); }catch(e){}
+    try{ await navigator.serviceWorker.register('./sw.js?v=17.4&bust='+Date.now()); }catch(e){}
   });
 }
 </script>
