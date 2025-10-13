@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v17.1 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=17.1"/>
+<title>AERIAL v17.2 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=17.2"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -19,7 +19,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v17.1 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v17.2 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -140,6 +140,7 @@ thgainEl.oninput = ()=>{ if(therGain) therGain.gain.value = parseInt(thgainEl.va
 bgmVolEl.oninput = ()=>{ if(bgmGain) bgmGain.gain.value = parseInt(bgmVolEl.value,10)/100; };
 
 // Output routing via setSinkId (Chrome等). We switch limiter's destination between AudioContext.destination and a MediaStreamDestination->HTMLAudioElement.
+
 let mediaDest = null, outEl = null, routingMode = 'default';
 function ensureMediaDest(){
   if(!audioCtx) return;
@@ -150,11 +151,24 @@ function ensureMediaDest(){
     outEl = new Audio();
     outEl.autoplay = true;
     outEl.muted = false;
+    try{ outEl.srcObject = mediaDest.stream; }catch(e){}
+  }
+}
+
+  if(!outEl){
+    outEl = new Audio();
+    outEl.autoplay = true;
+    outEl.muted = false;
     try{ outEl.srcObject = mediaDest.stream; outEl.play(); }catch(e){}
   }
 }
+
 function routeOutputDefault(){
   try{ limiter.disconnect(); }catch(e){}
+  try{ limiter.connect(audioCtx.destination); }catch(e){}
+  routingMode = 'default';
+}
+catch(e){}
   limiter.connect(audioCtx.destination);
   routingMode = 'default';
 }
@@ -322,19 +336,47 @@ bgmFile.onchange=async (e)=>{
 };
 
 /* Pause/Resume */
-btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
+
+btnPause.onclick=async ()=>{
+  if(!audioCtx) return;
+  if(audioCtx.state==='running'){
+    await audioCtx.suspend();
+  } else {
+    await audioCtx.resume();
+  }
+  btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
+};
+
 
 /* Start immediately with fallback overlay */
+
 (async function boot(){
   await setup();
-  // Output routing init
+  // Default routing and outputs
   routeOutputDefault();
   refreshOutputs();
-  updateBGMMixByMode();
-  // Try auto-unlock
-  autoUnlockAttempt();
-  // If still suspended after a tick, show overlay
-  setTimeout(async ()=>{
+  // Try resume; if blocked, show overlay
+  try{ await audioCtx.resume(); }catch(e){}
+  btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
+  audioCtx.onstatechange = ()=>{
+    btnPause.textContent = (audioCtx.state==='running') ? '⏸ Pause' : '▶ Resume';
+  };
+  // Fallback unlock on first user gesture
+  const unlockOnce = async ()=>{
+    try{
+      await audioCtx.resume();
+      // tick a silent buffer to unlock
+      const s = audioCtx.createBufferSource();
+      s.buffer = audioCtx.createBuffer(1,1,audioCtx.sampleRate);
+      s.connect(audioCtx.destination); s.start();
+      hideUnlock();
+    }catch(e){}
+  };
+  ['pointerdown','touchstart','keydown'].forEach(ev=>{
+    window.addEventListener(ev, unlockOnce, {once:true,passive:true});
+  });
+  // If still suspended after a moment, show overlay
+  setTimeout(()=>{
     if(audioCtx.state!=='running'){ showUnlock(); }
   }, 500);
 })();
@@ -364,7 +406,7 @@ recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 // SW register (also from player page to ensure updates even when this page is bookmarked)
 if('serviceWorker' in navigator){
   addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=17.1&bust='+Date.now()); }catch(e){}
+    try{ await navigator.serviceWorker.register('./sw.js?v=17.2&bust='+Date.now()); }catch(e){}
   });
 }
 </script>

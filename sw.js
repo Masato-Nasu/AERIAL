@@ -1,6 +1,6 @@
-// sw.js v17.1 — AERIAL Distributable
-const V='v17.1'; const CACHE='aerial-'+V;
-const ASSETS=['./','./index.html?v=17.1','./hum-theremin-recorder.html?v=17.1','./manifest.json?v=17.1','./icon-192.png','./icon-512.png','./Chime.mp3'];
+// sw.js v17.2 — AERIAL Distributable
+const V='v17.2'; const CACHE='aerial-'+V;
+const ASSETS=['./','./index.html?v=17.2','./hum-theremin-recorder.html?v=17.2','./manifest.json?v=17.2','./icon-192.png','./icon-512.png','./Chime.mp3'];
 self.addEventListener('install',e=>{e.waitUntil((async()=>{const c=await caches.open(CACHE);for(const u of ASSETS){try{await c.add(u)}catch{}}await self.skipWaiting()})())});
 self.addEventListener('activate',e=>{e.waitUntil((async()=>{const ks=await caches.keys();await Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim()})())});
 self.addEventListener('fetch',e=>{
