@@ -1,8 +1,10 @@
 <!doctype html>
 <html lang="ja"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v20.1 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=20.1"/>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta http-equiv="cache-control" content="no-store, max-age=0"/>
+<title>AERIAL v21 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=21"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
@@ -10,13 +12,15 @@
   main{max-width:980px;margin:0 auto;padding:14px}
   .card{background:#12151b;border:1px solid #1f242c;border-radius:12px;padding:12px;margin:12px 0}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  button,input,select,label{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:8px 10px}
+  button,input,label{background:#0f1320;color:#cfe7ff;border:1px solid #253043;border-radius:8px;padding:8px 10px}
+  input[type="range"]{width:160px}
   .muted{color:var(--muted);font-size:13px}
   .chk{display:inline-flex;align-items:center;gap:6px;background:transparent;border:none;padding:0;margin-right:10px}
   #burst{position:fixed;inset:0;pointer-events:none;z-index:5}
   #unlock{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:10}
   #unlock > div{background:#0f1320;border:1px solid #253043;border-radius:14px;padding:16px 18px;text-align:center}
-
+  .btn{cursor:pointer}
+  .btn-choose{background:#142245;border-color:#29406e}
   .rec-badge{display:inline-flex;align-items:center;gap:8px;padding:4px 8px;border-radius:10px;border:1px solid #442; background:#1a0a0a;color:#ffb3b3}
   .rec-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
   @keyframes blink{0%,55%{opacity:1}75%{opacity:.25}100%{opacity:1}}
@@ -24,17 +28,15 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v20.1 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v21 — Distributable Edition</h1>
     <div class="row">
-      <button id="btnPause">⏸ Pause</button>
+      <button id="btnPause" class="btn">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
-      <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="80"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="60"/>
-      <label>BGM</label>
-      <select id="bgmMode"><option value="file">ファイル</option></select>
-      <input id="bgmFile" type="file" accept="audio/*"/>
-      <button id="recStart">🎙 Start Recording</button>
-      <button id="recStop" disabled>⏹ Stop</button>
+      <button id="btnPick" class="btn btn-choose">音楽を選ぶ</button>
+      <input id="bgmFile" type="file" accept="audio/*" style="display:none"/>
+      <button id="recStart" class="btn">🎙 Start Recording</button>
+      <button id="recStop" class="btn" disabled>⏹ Stop</button>
       <span id="recStatus" class="muted">Idle</span>
       <span id="recBadge" class="rec-badge" style="display:none"><span class="rec-dot"></span>REC</span>
     </div>
@@ -47,39 +49,46 @@
       <label class="chk"><input type="checkbox" id="env-cafe"/>カフェ</label>
       <span class="muted">※ 外部BGM再生中は自動ミュート</span>
     </div>
-    <p class="muted">傾きでTheremin（正弦波）：<b>ピッチ・ロール共に「0/360の継ぎ目がない」円環補間＋「180°範囲内で最大/最少が出る」山形関数</b>。振るとチャイム。録音はWAV保存。マイクは使いません。</p>
+    <p class="muted">傾きでTheremin（正弦波）：<b>ピッチ90°が最高音・最大音量</b>。0/360継ぎ目なしの円環補間。振るとチャイム。録音はWAV保存。マイクは使いません。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
 <div id="unlock"><div>
   <p style="margin:0 0 8px">タップして開始</p>
-  <button id="btnUnlock">▶ Tap to Start</button>
+  <button id="btnUnlock" class="btn">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v20.1: fixes + improved ambience + recording indicator ===== */
-// v20.1初回ロードで旧キャッシュを掃除（aerial-*）
+/* ===== v21: hard reset once ===== */
 (async ()=>{
-  const VER='20.1', KEY='aerial_ver';
+  const VER='21', KEY='aerial_ver', RESET='aerial_sw_reset_done_21';
   try{
-    const cur=localStorage.getItem(KEY);
-    if(cur!==VER && 'caches' in window){
-      for(const k of await caches.keys()){ if(k.startsWith('aerial-')) await caches.delete(k); }
-      localStorage.setItem(KEY,VER);
+    if(!localStorage.getItem(RESET)){
+      if('serviceWorker' in navigator){
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for(const r of regs) await r.unregister();
+      }
+      if('caches' in window){
+        for(const k of await caches.keys()){ await caches.delete(k); }
+      }
+      localStorage.setItem(RESET,'1');
+      location.replace(location.pathname+'?v=21&bust='+Date.now());
+      return;
     }
+    localStorage.setItem(KEY,VER);
   }catch(e){}
 })();
 
-let audioCtx=null, masterG, limiter;
+let audioCtx=null, masterG;
 let therOsc, therGain;
 let chimeBuf=null, chimeGain;
 let bgmEl=null, bgmSrc=null, bgmGain=null;
 let recNode, recBuffers=[], recording=false, recSampleRate=48000;
 let envMaster=null, env={};
-let lastR=0; // for theremin immediate slider response
 
-const masterEl=document.getElementById('master'), thgainEl=document.getElementById('thgain');
+const masterEl=document.getElementById('master');
 const bgmVolEl=document.getElementById('bgmVol');
-const bgmMode=document.getElementById('bgmMode'), bgmFile=document.getElementById('bgmFile');
+const btnPick=document.getElementById('btnPick');
+const bgmFile=document.getElementById('bgmFile');
 const recStartBtn=document.getElementById('recStart'), recStopBtn=document.getElementById('recStop'), recStatus=document.getElementById('recStatus');
 const recBadge=document.getElementById('recBadge');
 const btnPause=document.getElementById('btnPause');
@@ -102,20 +111,8 @@ function lerpAngle(prev, next, alpha){
   if(d<-180) d+=360;
   return wrap360(p + d*alpha);
 }
-function onePeak(deg){ const x=wrap360(deg)*Math.PI/180; return (1-Math.cos(x))/2; }
-
-async function initRecorder(){
-  if(!audioCtx) return;
-  if(audioCtx.audioWorklet && audioCtx.audioWorklet._addedMixTap) return;
-  const code=`class MixTap extends AudioWorkletProcessor{process(i){const ch=i[0]?.[0];if(ch)this.port.postMessage(ch);return true;}}registerProcessor('mix-tap',MixTap);`;
-  const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob);
-  await audioCtx.audioWorklet.addModule(url); audioCtx.audioWorklet._addedMixTap=true;
-  recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
-  recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
-}
-function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
-function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
-function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
+// one-peak centered at 90°
+function onePeak90(deg){ const x=((wrap360(deg)-90)+360)%360 * Math.PI/180; return (1-Math.cos(x))/2; }
 
 async function setup(){
   if(audioCtx) return;
@@ -123,29 +120,17 @@ async function setup(){
   masterG=audioCtx.createGain(); masterG.gain.value=parseInt(masterEl.value,10)/100;
   const limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-8;limiter.knee.value=12;limiter.ratio.value=12;limiter.attack.value=0.003;limiter.release.value=0.25;
   masterG.connect(limiter).connect(audioCtx.destination);
-
-  // Master slider live
   masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
 
-  // Environment bus
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
-  // Theremin
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
-  therGain=audioCtx.createGain();
-  therGain.gain.value = 0.10;
+  therGain=audioCtx.createGain(); therGain.gain.value=0.05; // base; loudness driven by pitch
   therOsc.connect(therGain).connect(masterG); therOsc.start();
-  thgainEl.oninput=()=>{ // immediate reflect without waiting orientation
-    const user=parseInt(thgainEl.value,10)/100;
-    const vol=(0.05 + lastR * 0.13) * user;
-    therGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.03);
-  };
 
-  // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
-  // External BGM
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
   bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100;
   bgmSrc.connect(bgmGain).connect(masterG);
@@ -156,89 +141,21 @@ async function setup(){
   initSensors();
 }
 
-function autoUnlockAttempt(){
-  if(!audioCtx){ return; }
-  audioCtx.resume().then(()=>{
-    try{ const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start(); }catch(e){}
-  }).catch(()=>{});
+async function initRecorder(){
+  if(!audioCtx) return;
+  if(audioCtx.audioWorklet && audioCtx.audioWorklet._addedMixTap) return;
+  const code=`class MixTap extends AudioWorkletProcessor{process(i){const ch=i[0]?.[0];if(ch)this.port.postMessage(ch);return true;}}registerProcessor('mix-tap',MixTap);`;
+  const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob);
+  await audioCtx.audioWorklet.addModule(url); audioCtx.audioWorklet._addedMixTap=true;
+  recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
+  recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
 }
 
-function showUnlock(){ overlay.style.display='flex'; }
-function hideUnlock(){ overlay.style.display='none'; }
+function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
+function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
+function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
 
-/* ===== Sensors & Theremin mapping ===== */
-const state={yaw:180,pitch:180,roll:180};
-function handleOrient(e){
-  const yawRaw = wrap360(typeof e.alpha==='number'?e.alpha:0);
-  const pitchRaw = wrap360(typeof e.beta==='number'?e.beta:0);
-  const rollRaw = wrap360(typeof e.gamma==='number'?e.gamma:0);
-
-  state.yaw = lerpAngle(state.yaw, yawRaw, 0.14);
-  state.pitch = lerpAngle(state.pitch, pitchRaw, 0.14);
-  state.roll = lerpAngle(state.roll, rollRaw, 0.14);
-
-  const P = onePeak(state.pitch);
-  const R = onePeak(state.roll);
-  lastR = R;
-
-  const base=220, range=900;
-  const f = base + (P*0.6 + R*0.4) * range;
-  if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3000), audioCtx.currentTime, 0.03);
-
-  const user = parseInt(thgainEl.value,10)/100;
-  const vol = (0.05 + R * 0.13) * user;
-  if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
-}
-
-function handleMotion(e){
-  const a=e.accelerationIncludingGravity; if(!a) return; const mag=Math.hypot(a.x||0,a.y||0,a.z||0); const now=performance.now();
-  if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); }
-}
-
-async function initSensors(){
-  try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
-  window.addEventListener('deviceorientation',handleOrient,true);
-  window.addEventListener('devicemotion',handleMotion,true);
-  // Desktop fallback
-  window.addEventListener('pointermove',(ev)=>{
-    const w=innerWidth,h=innerHeight;const nx=(ev.clientX/w);const ny=(ev.clientY/h);
-    handleOrient({alpha:nx*360,beta:ny*360,gamma:nx*360});
-  },{passive:true});
-}
-
-function playChime(){ if(!chimeBuf||!audioCtx) return; const s=audioCtx.createBufferSource(); s.buffer=chimeBuf; s.connect(chimeGain); s.start(); }
-
-/* ===== Burst visual ===== */
-const cvs=document.getElementById('burst'), g=cvs.getContext('2d'); let burstT=0;
-function fit(){const r=window.devicePixelRatio||1; cvs.width=innerWidth*r; cvs.height=innerHeight*r; cvs.style.width=innerWidth+'px'; cvs.style.height=innerHeight+'px'; } addEventListener('resize',fit); fit();
-function triggerBurst(){ burstT=performance.now(); }
-(function loop(){ requestAnimationFrame(loop); const now=performance.now(); const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0); g.clearRect(0,0,cvs.width,cvs.height); if(!burstT) return; const dt=(now-burstT)/1000; if(dt>0.9){ burstT=0; return; } const cx=innerWidth/2, cy=innerHeight*0.28; const rad=40+dt*420; const a=Math.max(0,1-dt*1.2); g.beginPath(); g.arc(cx,cy,rad,0,Math.PI*2); g.strokeStyle='rgba(143,211,255,'+a.toFixed(3)+')'; g.lineWidth=2+6*(1-a); g.stroke(); })();
-
-/* ===== Recorder UI (with indicator) ===== */
-function startRec(){ if(!audioCtx) return;
-  recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate;
-  recStartBtn.disabled=true; recStopBtn.disabled=false;
-  recStatus.textContent='Recording'; recStatus.style.color='#ffb3b3'; recBadge.style.display='inline-flex';
-}
-function stopRec(){ recording=false;
-  recStartBtn.disabled=false; recStopBtn.disabled=true;
-  recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
-  const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
-  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v20_1_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
-  recStatus.textContent='Idle';
-}
-recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
-
-/* ===== BGM: external file only + volume control ===== */
-bgmMode.onchange=()=>{ /* structure kept */ };
-bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
-function handleBgmState(){
-  const active = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
-  setEnvMuted(active);
-}
-bgmVolEl.oninput=()=>{ if(bgmGain) bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100; };
-
-/* ===== Environment generators (improved Birds/Rain/Cafe) ===== */
+function handleBgmState(){ setEnvMuted(!!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src)); }
 function setEnvMuted(muted){
   if(!envMaster || !audioCtx) return;
   const target = muted ? 0.0 : (anyEnvSelected()? 0.35 : 0.0);
@@ -271,7 +188,7 @@ function env_start(type){
   if(env[type]?.on) return;
   env[type]={on:true, stop:()=>{}};
   const panOK = typeof audioCtx.createStereoPanner === 'function';
-  const mkPanner = (val=0)=> panOK ? audioCtx.createStereoPanner() : null;
+  const mkPanner = ()=> panOK ? audioCtx.createStereoPanner() : null;
 
   switch(type){
     case 'wind':{
@@ -296,7 +213,6 @@ function env_start(type){
       env[type].stop=()=>{ try{src.stop();}catch{} swell.stop(); };
     }break;
     case 'rain':{
-      // Base pink hiss + discrete drops with stereo spread
       const base=audioCtx.createBufferSource(); base.buffer=pinkNoiseBuffer(3); base.loop=true;
       const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200;
       const g=audioCtx.createGain(); g.gain.value=0.18;
@@ -321,7 +237,6 @@ function env_start(type){
       env[type].stop=()=>{ alive=false; try{base.stop();}catch{} };
     }break;
     case 'cafe':{
-      // Multi-voice babble: bandpassed pink with slow AM, slight detuned centers
       const voices=[];
       const centers=[600, 850, 1100, 1400];
       for(const fc of centers){
@@ -339,7 +254,6 @@ function env_start(type){
       env[type].stop=()=>{ voices.forEach(fn=>fn()); };
     }break;
     case 'birds':{
-      // FM-like chirps with panning and better envelope
       const g=audioCtx.createGain(); g.gain.value=0.14;
       g.connect(envMaster);
       let alive=true;
@@ -347,13 +261,13 @@ function env_start(type){
         if(!alive) return;
         const c=audioCtx.createOscillator(); c.type='sine';
         const m=audioCtx.createOscillator(); m.type='sine';
-        const idx=audioCtx.createGain(); idx.gain.value=900; // modulation index
+        const idx=audioCtx.createGain(); idx.gain.value=900;
         m.frequency.value=1200+Math.random()*800;
         c.frequency.value=2200+Math.random()*1800;
         m.connect(idx).connect(c.frequency);
         const eg=audioCtx.createGain(); eg.gain.value=0.0;
-        const pan= (typeof audioCtx.createStereoPanner==='function') ? audioCtx.createStereoPanner() : null;
-        const chain = pan ? (eg.connect(pan), pan.connect(g)) : eg.connect(g);
+        const pan=(typeof audioCtx.createStereoPanner==='function')?audioCtx.createStereoPanner():null;
+        (pan? (eg.connect(pan),pan.connect(g)) : eg.connect(g));
         c.connect(eg);
         const t=audioCtx.currentTime;
         eg.gain.setValueAtTime(0.0,t);
@@ -383,26 +297,84 @@ function refreshEnv(){
 }
 Object.entries(envChecks).forEach(([k,cb])=>cb.addEventListener('change', refreshEnv, {passive:true}));
 
-/* Pause/Resume */
+/* Sensors: peak at pitch=90° */
+const state={pitch:90, roll:0, yaw:0};
+function handleOrient(e){
+  const yawRaw = wrap360(typeof e.alpha==='number'?e.alpha:0);
+  const pitchRaw = wrap360(typeof e.beta==='number'?e.beta:0);
+  const rollRaw = wrap360(typeof e.gamma==='number'?e.gamma:0);
+
+  state.yaw = lerpAngle(state.yaw, yawRaw, 0.14);
+  state.pitch = lerpAngle(state.pitch, pitchRaw, 0.14);
+  state.roll = lerpAngle(state.roll, rollRaw, 0.14);
+
+  const P = onePeak90(state.pitch); // 0..1, peak at 90°
+
+  const base=220, range=900;
+  const f = base + P * range;
+  if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3000), audioCtx.currentTime, 0.03);
+
+  const vol = 0.03 + P * 0.17;
+  if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
+}
+
+function handleMotion(e){
+  const a=e.accelerationIncludingGravity; if(!a) return; const mag=Math.hypot(a.x||0,a.y||0,a.z||0); const now=performance.now();
+  if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); }
+}
+
+async function initSensors(){
+  try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
+  window.addEventListener('deviceorientation',handleOrient,true);
+  window.addEventListener('devicemotion',handleMotion,true);
+  window.addEventListener('pointermove',(ev)=>{
+    const w=innerWidth,h=innerHeight;const nx=(ev.clientX/w);const ny=(ev.clientY/h);
+    handleOrient({alpha:nx*360,beta:ny*360,gamma:nx*360});
+  },{passive:true});
+}
+
+function playChime(){ if(!chimeBuf||!audioCtx) return; const s=audioCtx.createBufferSource(); s.buffer=chimeBuf; s.connect(chimeGain); s.start(); }
+
+/* UI Buttons */
+btnPick.onclick=()=> bgmFile.click();
+bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
 btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
+
+/* Recorder with indicator */
+function startRec(){ if(!audioCtx) return;
+  recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate;
+  recStartBtn.disabled=true; recStopBtn.disabled=false;
+  recStatus.textContent='Recording'; recStatus.style.color='#ffb3b3'; recBadge.style.display='inline-flex';
+}
+function stopRec(){ recording=false;
+  recStartBtn.disabled=false; recStopBtn.disabled=true;
+  recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
+  const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
+  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
+  recStatus.textContent='Idle';
+}
+recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
+
+/* Burst visual */
+const cvs=document.getElementById('burst'), g=cvs.getContext('2d'); let burstT=0;
+function fit(){const r=window.devicePixelRatio||1; cvs.width=innerWidth*r; cvs.height=innerHeight*r; cvs.style.width=innerWidth+'px'; cvs.style.height=innerHeight+'px'; } addEventListener('resize',fit); fit();
+function triggerBurst(){ burstT=performance.now(); }
+(function loop(){ requestAnimationFrame(loop); const now=performance.now(); const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0); g.clearRect(0,0,cvs.width,cvs.height); if(!burstT) return; const dt=(now-burstT)/1000; if(dt>0.9){ burstT=0; return; } const cx=innerWidth/2, cy=innerHeight*0.28; const rad=40+dt*420; const a=Math.max(0,1-dt*1.2); g.beginPath(); g.arc(cx,cy,rad,0,Math.PI*2); g.strokeStyle='rgba(143,211,255,'+a.toFixed(3)+')'; g.lineWidth=2+6*(1-a); g.stroke(); })();
 
 /* Boot */
 (async function boot(){
   await setup();
-  autoUnlockAttempt();
-  setTimeout(()=>{ if(audioCtx.state!=='running'){ showUnlock(); } }, 500);
+  try{ await audioCtx.resume(); }catch(e){};
+  setTimeout(()=>{ if(audioCtx.state!=='running'){ document.getElementById('unlock').style.display='flex'; } }, 400);
 })();
-
-async function unlockNow(){
+btnUnlock.onclick = async ()=>{
   try{
     if(!audioCtx) await setup();
     try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
     await audioCtx.resume();
     const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start();
-    hideUnlock();
-  }catch(e){ console.warn(e); }
-}
-['pointerdown','touchstart','keydown'].forEach(ev=>{ window.addEventListener(ev, unlockNow, {once:false,passive:true}); });
-btnUnlock.onclick = unlockNow;
+    document.getElementById('unlock').style.display='none';
+  }catch(e){}
+};
 </script>
 </body></html>
