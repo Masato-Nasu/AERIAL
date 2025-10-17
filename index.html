@@ -3,45 +3,63 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v21.4</title>
-<link rel="manifest" href="manifest.json?v=21.4"/>
+<title>AERIAL v21.6</title>
+<link rel="manifest" href="manifest.json?v=21.6"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
   .wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
   a{color:#8fd3ff;text-decoration:none;padding:10px 14px;border:1px solid #253043;border-radius:10px;background:#0f1320}
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 </style>
 </head><body>
 <div class="wrap">
   <div>
-    <h1 style="margin:0 0 12px">AERIAL v21.4 — Distributable Edition</h1>
-    <p><a href="hum-theremin-recorder.html?v=21.4&bust='+Date.now()+'">▶ Launch</a></p>
+    <h1 style="margin:0 0 12px">AERIAL v21.6 — Distributable Edition</h1>
+    <div class="row">
+      <a href="hum-theremin-recorder.html?v=21.6&bust='+Date.now()+'">▶ Launch</a>
+      <a href="hum-theremin-recorder-nosw.html?v=21.6&bust='+Date.now()+'">▶ Launch (No‑SW)</a>
+      <a href="reset.html?v=21.6&bust='+Date.now()+'">🧹 Reset Caches</a>
+    </div>
+    <p style="opacity:.8;margin-top:10px">更新が反映されない場合は <b>Reset Caches</b> または <b>No‑SW</b> をお使いください。</p>
   </div>
 </div>
 <script>
-(async ()=>{
-  const VER='21.4', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_4';
-  try{
-    if(!localStorage.getItem(RESET)){
+(async()=>{
+  const VER='21.6', RESET_KEY='aerial_sw_reset_done_21_6';
+  const q=new URLSearchParams(location.search);
+  if(q.has('kill-sw')){
+    try{
       if('serviceWorker' in navigator){
-        const regs = await navigator.serviceWorker.getRegistrations();
+        const regs=await navigator.serviceWorker.getRegistrations();
         for(const r of regs) await r.unregister();
       }
       if('caches' in window){
-        for(const k of await caches.keys()){ await caches.delete(k); }
+        for(const k of await caches.keys()) await caches.delete(k);
       }
-      localStorage.setItem(RESET,'1');
-      location.replace(location.pathname+'?v=21.4&bust='+Date.now());
+    }catch(e){}
+    location.replace('./index.html?v=21.6&bust='+Date.now());
+    return;
+  }
+  try{
+    if(!localStorage.getItem(RESET_KEY)){
+      if('serviceWorker' in navigator){
+        const regs=await navigator.serviceWorker.getRegistrations();
+        for(const r of regs) await r.unregister();
+      }
+      if('caches' in window){
+        for(const k of await caches.keys()) await caches.delete(k);
+      }
+      localStorage.setItem(RESET_KEY,'1');
+      location.replace(location.pathname+'?v=21.6&bust='+Date.now());
       return;
     }
-    localStorage.setItem(KEY,VER);
   }catch(e){}
+  if('serviceWorker' in navigator){
+    addEventListener('load', async()=>{
+      try{ await navigator.serviceWorker.register('./sw.js?v=21.6&bust='+Date.now()); }catch(e){}
+    });
+  }
 })();
-
-if('serviceWorker' in navigator){
-  addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=21.4&bust='+Date.now()); }catch(e){}
-  });
-}
 </script>
 </body></html>

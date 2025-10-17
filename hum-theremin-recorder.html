@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="ja"><head>
+<title>AERIAL v%%VER%% — Distributable Edition</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v21.4 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=21.4"/>
+<link rel="manifest" href="manifest.json?v=%%VER%%"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
@@ -29,22 +29,21 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v21.4 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v%%VER%% — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause" class="btn">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="60"/>
       <button id="btnPick" class="btn btn-choose">音楽を選ぶ</button>
       <button id="btnStopMusic" class="btn btn-stop" disabled>音楽を止める</button>
-      <!-- recorder を抑止: MIME を application/octet-stream を先頭に、拡張子列を追加。audio/* は使わない -->
-      <input id="bgmFile" type="file" accept="application/octet-stream,.mp3,.m4a,.aac,.wav,.ogg,.flac,.aiff,.aif,.opus,.mka" style="display:none"/>
+      <input id="bgmFile" type="file" accept=".mp3,.m4a,.aac,.wav,.ogg,.flac,.aiff,.aif,.opus,.mka" style="display:none"/>
       <button id="recStart" class="btn">🎙 Start Recording</button>
       <button id="recStop" class="btn" disabled>⏹ Stop</button>
       <span id="recStatus" class="muted">Idle</span>
       <span id="recBadge" class="rec-badge" style="display:none"><span class="rec-dot"></span>REC</span>
     </div>
     <div class="row" style="margin-top:8px">
-      <span class="muted" style="background:transparent;border:none;padding:0">環境音（複数選択）:</span>
+      <span class="muted">環境音（複数選択）:</span>
       <label class="chk"><input type="checkbox" id="env-birds"/>鳥</label>
       <label class="chk"><input type="checkbox" id="env-wind"/>風</label>
       <label class="chk"><input type="checkbox" id="env-waves"/>波</label>
@@ -52,7 +51,7 @@
       <label class="chk"><input type="checkbox" id="env-cafe"/>カフェ</label>
       <span class="muted">※ 外部BGM再生中は自動ミュート（BGM Vol は環境音の音量にも反映）</span>
     </div>
-    <p class="muted">β角で制御：<b>0°で最小音・180°で最大音</b>。録音はWAV保存。</p>
+    <p class="muted">β角の連続マッピング：<b>0°で最小音、180°で最大音、360°で再び最小</b>（cos波形）。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
@@ -61,31 +60,19 @@
   <button id="btnUnlock" class="btn">▶ Tap to Start</button>
 </div></div>
 <script>
-(async ()=>{
-  const VER='21.4', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_4';
-  try{
-    if(!localStorage.getItem(RESET)){
-      if('serviceWorker' in navigator){
-        const regs = await navigator.serviceWorker.getRegistrations();
-        for(const r of regs) await r.unregister();
-      }
-      if('caches' in window){
-        for(const k of await caches.keys()){ await caches.delete(k); }
-      }
-      localStorage.setItem(RESET,'1');
-      location.replace(location.pathname+'?v=21.4&bust='+Date.now());
-      return;
-    }
-    localStorage.setItem(KEY,VER);
-  }catch(e){}
-})();
+if('serviceWorker' in navigator){
+  addEventListener('load', async ()=>{ try{ await navigator.serviceWorker.register('./sw.js?v=%%VER%%&bust='+Date.now()); }catch(e){} });
+}
+</script>
+<script>
 
 let audioCtx=null, masterG;
 let therOsc, therGain, therFilter, lfoAmp, lfoAmpG, lfoVib, lfoVibG;
 let chimeBuf=null, chimeGain;
 let bgmEl=null, bgmSrc=null, bgmGain=null;
-let recNode, recBuffers=[], recording=false, recSampleRate=48000;
+let recBuffers=[], recording=false, recSampleRate=48000;
 let envMaster=null, env={};
+let recorder=null, recChunks=[], streamDest=null;
 
 const masterEl=document.getElementById('master');
 const bgmVolEl=document.getElementById('bgmVol');
@@ -95,191 +82,153 @@ const bgmFile=document.getElementById('bgmFile');
 const recStartBtn=document.getElementById('recStart'), recStopBtn=document.getElementById('recStop'), recStatus=document.getElementById('recStatus');
 const recBadge=document.getElementById('recBadge');
 const btnPause=document.getElementById('btnPause');
-const overlay=document.getElementById('unlock'), btnUnlock=document.getElementById('btnUnlock');
 
-const envChecks={
-  birds: document.getElementById('env-birds'),
-  wind:  document.getElementById('env-wind'),
-  waves: document.getElementById('env-waves'),
-  rain:  document.getElementById('env-rain'),
-  cafe:  document.getElementById('env-cafe'),
-};
+const envChecks={ birds:env_b('birds'), wind:env_b('wind'), waves:env_b('waves'), rain:env_b('rain'), cafe:env_b('cafe') };
+function env_b(id){ return document.getElementById('env-'+id); }
 
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+const toRad = d=>d*Math.PI/180;
+function norm360(d){ d%=360; if(d<0)d+=360; return d; }
+function PfromBeta(beta){ const n = norm360(beta); return (1 - Math.cos(toRad(n)))/2; }
 
-let betaFilt = 0; // smoothed beta in [-180,180]
-
-function mapBetaToP(beta){
-  let b = beta;
-  if (b > 180) b -= 360;
-  if (b < -180) b += 360;
-  const folded = Math.min(180, Math.max(0, Math.abs(b)));
-  return folded / 180;
-}
+let betaFilt = 0;
+function handleOrient(e){ if(typeof e.beta==='number') betaFilt = betaFilt*0.9 + e.beta*0.1; }
+function handleMotion(e){ const a=e.accelerationIncludingGravity; const mag=Math.hypot(a?.x||0,a?.y||0,a?.z||0); const now=performance.now(); if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); } }
 
 async function setup(){
   if(audioCtx) return;
   audioCtx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
   masterG=audioCtx.createGain(); masterG.gain.value=parseInt(masterEl.value,10)/100;
   const limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-6;limiter.knee.value=14;limiter.ratio.value=14;limiter.attack.value=0.003;limiter.release.value=0.25;
-  masterG.connect(limiter).connect(audioCtx.destination);
+  masterG.connect(limiter); limiter.connect(audioCtx.destination);
+  streamDest = audioCtx.createMediaStreamDestination(); limiter.connect(streamDest);
+  try{
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+    recorder = new MediaRecorder(streamDest.stream, mime? {mimeType:mime}:{ });
+    recorder.ondataavailable = ev => { if(ev.data && ev.data.size>0) recChunks.push(ev.data); };
+    recorder.onstop = ()=>{
+      const blob = new Blob(recChunks, {type: recorder.mimeType || 'audio/webm'});
+      recChunks.length=0;
+      downloadBlob(blob, 'AERIAL_v21.6_'+ts()+(blob.type.includes('webm')?'.webm':'.wav'));
+      recStatus.textContent='Idle';
+    };
+  }catch(e){ recorder=null; }
   masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
 
-  // Environment bus (a bit louder base)
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
-  // Theremin chain
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
   therFilter=audioCtx.createBiquadFilter(); therFilter.type='lowpass'; therFilter.frequency.value=2600; therFilter.Q.value=0.7;
   therGain=audioCtx.createGain(); therGain.gain.value=0.06;
   therOsc.connect(therFilter).connect(therGain).connect(masterG); therOsc.start();
-  // tremolo & vibrato
+
   lfoAmp=audioCtx.createOscillator(); lfoAmp.type='sine'; lfoAmp.frequency.value=1.2;
   lfoAmpG=audioCtx.createGain(); lfoAmpG.gain.value=0.06; lfoAmp.connect(lfoAmpG).connect(therGain.gain); lfoAmp.start();
   lfoVib=audioCtx.createOscillator(); lfoVib.type='sine'; lfoVib.frequency.value=5.5;
   lfoVibG=audioCtx.createGain(); lfoVibG.gain.value=6; lfoVib.connect(lfoVibG).connect(therOsc.frequency); lfoVib.start();
 
-  // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
-  // BGM + shared volume
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
-  bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain();
-  const initVol=parseInt(bgmVolEl.value,10)/100;
-  bgmGain.gain.value=initVol;
+  bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100;
   bgmSrc.connect(bgmGain).connect(masterG);
-  ['play','pause','ended'].forEach(ev=>bgmEl.addEventListener(ev, handleBgmState, {passive:true}));
+  ['play','pause','ended','error','canplay'].forEach(ev=>bgmEl.addEventListener(ev, handleBgmState, {passive:true}));
   bgmVolEl.oninput=syncSharedVolume;
 
-  await initRecorder();
-  initSensors();
-  updateStopButton();
+  try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
+  addEventListener('deviceorientation',handleOrient,true);
+  addEventListener('devicemotion',handleMotion,true);
+  addEventListener('pointermove',(ev)=>{ const ny=(ev.clientY/innerHeight); const beta=ny*180; handleOrient({beta}); },{passive:true});
+
+  ['click','touchend','pointerup','keydown'].forEach(ev=>{
+    addEventListener(ev, async ()=>{ try{ if(audioCtx && audioCtx.state!=='running') await audioCtx.resume(); }catch(e){} }, {passive:true});
+  });
+
+  btnPick.onclick=()=>{ if('showPicker' in HTMLInputElement.prototype) bgmFile.showPicker(); else bgmFile.click(); };
+  btnStopMusic.onclick=()=>{ try{ bgmEl.pause(); bgmEl.currentTime=0; bgmEl.src=''; }catch(e){} updateStopButton(); handleBgmState(); };
+  bgmFile.onchange=async (e)=>{ const f=e.target.files && e.target.files[0]; if(!f) return;
+    if(!/\.(mp3|m4a|aac|wav|ogg|flac|aiff?|opus|mka)$/i.test(f.name)){ alert('音楽ファイルを選んでください'); e.target.value=''; return; }
+    const url=URL.createObjectURL(f); bgmEl.src=url; try{ await audioCtx.resume(); await bgmEl.play(); }catch(ex){ console.warn('autoplay blocked', ex); } };
+
+  btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
+  recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
+
+  Object.entries(envChecks).forEach(([k,cb])=>cb.addEventListener('change', refreshEnv, {passive:true}));
+
   requestAnimationFrame(updateTheremin);
 }
 
+function handleBgmState(){ updateStopButton(); syncSharedVolume(); }
+function updateStopButton(){ const running = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); btnStopMusic.disabled=!running; }
 function syncSharedVolume(){
   if(!audioCtx) return;
   const v = parseInt(bgmVolEl.value,10)/100;
   if(bgmGain) bgmGain.gain.value=v;
-  const activeBgm = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
-  const target = activeBgm ? 0.0 : (anyEnvSelected()? Math.max(0.15, v*0.45) : 0.0);
+  const active = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
+  const target = active ? 0.0 : (anyEnvSelected()? Math.max(0.12, v*0.42) : 0.0);
   envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
   envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.05);
 }
-function handleBgmState(){ updateStopButton(); syncSharedVolume(); }
-function updateStopButton(){ const running = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); btnStopMusic.disabled = !running; }
-
-async function initRecorder(){
-  if(!audioCtx) return;
-  if(audioCtx.audioWorklet && audioCtx.audioWorklet._addedMixTap) return;
-  const code=`class MixTap extends AudioWorkletProcessor{process(i){const ch=i[0]?.[0];if(ch)this.port.postMessage(ch);return true;}}registerProcessor('mix-tap',MixTap);`;
-  const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob);
-  await audioCtx.audioWorklet.addModule(url); audioCtx.audioWorklet._addedMixTap=true;
-  recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
-  recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
-}
-function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
-function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
-function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
-
 function setEnvMuted(muted){
   if(!envMaster || !audioCtx) return;
   const v = parseInt(bgmVolEl.value,10)/100;
-  const target = muted ? 0.0 : (anyEnvSelected()? Math.max(0.15, v*0.45) : 0.0);
+  const target = muted ? 0.0 : (anyEnvSelected()? Math.max(0.12, v*0.42) : 0.0);
   envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
   envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.08);
 }
 function anyEnvSelected(){ return Object.values(envChecks).some(cb=>cb.checked); }
 
-/* Orientation */
-function handleOrient(e){
-  if(typeof e.beta === 'number'){
-    let b = e.beta;
-    if (b > 180) b -= 360;
-    if (b < -180) b += 360;
-    // slightly faster smoothing
-    betaFilt = betaFilt*0.85 + b*0.15;
+function noiseBuffer(seconds=2){ const b=audioCtx.createBuffer(1,Math.max(1,Math.floor(audioCtx.sampleRate*seconds)),audioCtx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1); return b; }
+function pinkNoiseBuffer(seconds=2){ const sr=audioCtx.sampleRate, n=Math.max(1,Math.floor(sr*seconds)); const b=audioCtx.createBuffer(1,n,sr); const d=b.getChannelData(0); let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0; for(let i=0;i<n;i++){ const white=Math.random()*2-1; b0=0.99886*b0 + white*0.0555179; b1=0.99332*b1 + white*0.0750759; b2=0.96900*b2 + white*0.1538520; b3=0.86650*b3 + white*0.3104856; b4=0.55000*b4 + white*0.5329522; b5=-0.7616*b5 - white*0.0168980; d[i]=b0+b1+b2+b3+b4+b5+b6*0.5362; d[i]*=0.11; b6=white*0.115926; } return b; }
+
+function env_start(type){
+  if(env[type]?.on) return;
+  env[type]={on:true, stop:()=>{}};
+  const panOK = typeof audioCtx.createStereoPanner === 'function';
+  switch(type){
+    case 'wind':{ const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(4); src.loop=true; const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700; const lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.08; const lfoG=audioCtx.createGain(); lfoG.gain.value=500; lfo.connect(lfoG).connect(lp.frequency); lfo.start(); const g=audioCtx.createGain(); g.gain.value=0.32; const p=panOK?audioCtx.createStereoPanner():null; (p? src.connect(lp).connect(g).connect(p).connect(envMaster) : src.connect(lp).connect(g).connect(envMaster)); src.start(); env[type].stop=()=>{ try{src.stop();}catch{} try{lfo.stop();}catch{} }; } break;
+    case 'waves':{ const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(4); src.loop=true; const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=180; bp.Q.value=0.6; const swell=audioCtx.createOscillator(); swell.type='sine'; swell.frequency.value=0.16; const swellG=audioCtx.createGain(); swellG.gain.value=0.35; const g=audioCtx.createGain(); g.gain.value=0.32; swell.connect(swellG).connect(g.gain); const p=panOK?audioCtx.createStereoPanner():null; (p? src.connect(bp).connect(g).connect(p).connect(envMaster) : src.connect(bp).connect(g).connect(envMaster)); src.start(); swell.start(); env[type].stop=()=>{ try{src.stop();}catch{} try{swell.stop();}catch{} }; } break;
+    case 'rain':{ const base=audioCtx.createBufferSource(); base.buffer=pinkNoiseBuffer(3); base.loop=true; const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200; const g=audioCtx.createGain(); g.gain.value=0.18; const p=panOK?audioCtx.createStereoPanner():null; (p? base.connect(hp).connect(g).connect(p).connect(envMaster) : base.connect(hp).connect(g).connect(envMaster)); base.start(); let alive=true; function drop(){ if(!alive) return; const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(0.12); const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2800; bp.Q.value=6; const eg=audioCtx.createGain(); eg.gain.value=0.0; const pan=panOK?audioCtx.createStereoPanner():null; (pan? src.connect(bp).connect(eg).connect(pan).connect(envMaster) : src.connect(bp).connect(eg).connect(envMaster)); const t=audioCtx.currentTime; eg.gain.setValueAtTime(0.0,t); eg.gain.linearRampToValueAtTime(0.9,t+0.005); eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18); src.start(t); src.stop(t+0.22); setTimeout(drop, 60+Math.random()*90); } drop(); env[type].stop=()=>{ alive=false; try{base.stop();}catch{} }; } break;
+    case 'cafe':{ const voices=[]; const centers=[600,850,1100,1400]; for(const fc of centers){ const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(2.5); src.loop=true; const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=fc; bp.Q.value=1.2; const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.7+Math.random()*1.2; const amG=audioCtx.createGain(); amG.gain.value=0.22+Math.random()*0.18; const g=audioCtx.createGain(); g.gain.value=0.18; const pan=panOK?audioCtx.createStereoPanner():null; if(pan) pan.pan.value=(Math.random()*2-1)*0.6; am.connect(amG).connect(g.gain); (pan? src.connect(bp).connect(g).connect(pan).connect(envMaster) : src.connect(bp).connect(g).connect(envMaster)); src.start(); am.start(); voices.push(()=>{ try{src.stop();}catch{} try{am.stop();}catch{} }); } env[type].stop=()=>{ voices.forEach(fn=>fn()); }; } break;
+    case 'birds':{ const g=audioCtx.createGain(); g.gain.value=0.14; g.connect(envMaster); let alive=true; function chirp(){ if(!alive) return; const c=audioCtx.createOscillator(); c.type='sine'; const m=audioCtx.createOscillator(); m.type='sine'; const idx=audioCtx.createGain(); idx.gain.value=900; m.frequency.value=1200+Math.random()*800; c.frequency.value=2200+Math.random()*1800; m.connect(idx).connect(c.frequency); const eg=audioCtx.createGain(); eg.gain.value=0.0; const pan=(typeof audioCtx.createStereoPanner==='function')?audioCtx.createStereoPanner():null; (pan? (eg.connect(pan),pan.connect(g)) : eg.connect(g)); c.connect(eg); const t=audioCtx.currentTime; eg.gain.setValueAtTime(0.0,t); eg.gain.linearRampToValueAtTime(0.6,t+0.02); eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18); if(pan) pan.pan.setValueAtTime((Math.random()*2-1)*0.7, t); c.start(t); m.start(t); c.stop(t+0.2); m.stop(t+0.2); setTimeout(chirp, 250+Math.random()*900); } chirp(); env[type].stop=()=>{ alive=false; }; } break;
   }
 }
-function handleMotion(e){
-  const a=e.accelerationIncludingGravity;
-  const mag=Math.hypot(a?.x||0,a?.y||0,a?.z||0); const now=performance.now();
-  if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); }
-}
-function initSensors(){
-  try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
-  addEventListener('deviceorientation',handleOrient,true);
-  addEventListener('devicemotion',handleMotion,true);
-  addEventListener('pointermove',(ev)=>{ const ny=(ev.clientY/innerHeight); const beta=ny*180; handleOrient({beta}); },{passive:true});
-}
+function env_stop(type){ if(!env[type]?.on) return; try{ env[type].stop(); }catch(e){} env[type].on=false; }
+function refreshEnv(){ if(!audioCtx) return; for(const [k,cb] of Object.entries(envChecks)){ cb.checked? env_start(k) : env_stop(k); } setEnvMuted(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); }
 
-/* Update loop */
-function updateTheremin(){
-  if(!audioCtx) return requestAnimationFrame(updateTheremin);
-  const P = mapBetaToP(betaFilt); // 0 at 0°, 1 at 180°
-  const base=220, range=1100;
-  const f = base + P * range;
-  therOsc.frequency.setTargetAtTime(Math.max(40,Math.min(3200,f)), audioCtx.currentTime, 0.03);
-  const vol = 0.05 + P * 0.30;
-  therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
-  therFilter.frequency.linearRampToValueAtTime(1800 + P*2600, audioCtx.currentTime+0.06);
-  requestAnimationFrame(updateTheremin);
-}
+function updateTheremin(){ if(!audioCtx) return requestAnimationFrame(updateTheremin); const P = PfromBeta(betaFilt); const base=220, range=1100; const f = base + P * range; therOsc.frequency.setTargetAtTime(Math.max(40,Math.min(3200,f)), audioCtx.currentTime, 0.03); const vol = 0.05 + P * 0.30; therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05); therFilter.frequency.linearRampToValueAtTime(1800 + P*2600, audioCtx.currentTime+0.06); requestAnimationFrame(updateTheremin); }
 
-/* UI */
-btnPick.onclick=()=>{
-  // Prefer showPicker to avoid capture UIs
-  if('showPicker' in HTMLInputElement.prototype){
-    bgmFile.showPicker();
-  }else{
-    bgmFile.click();
-  }
-};
-btnStopMusic.onclick=()=>{ try{ bgmEl.pause(); bgmEl.currentTime=0; bgmEl.src=''; }catch(e){} updateStopButton(); handleBgmState(); };
-bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return;
-  const okExt = /\.(mp3|m4a|aac|wav|ogg|flac|aiff?|opus|mka)$/i.test(f.name);
-  if(!okExt){ alert('音楽ファイル（mp3/m4a/aac/wav/ogg/flac/aiff/opus/mka）を選んでください'); e.target.value=''; return; }
-  const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(ex){} };
-btnPause.onclick=async ()=>{ if(audioCtx) { if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } } };
+function ts(){ return (new Date()).toISOString().replace(/[:.]/g,'-'); }
+function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
+let workletNode=null, workletTap=null;
+async function initWorkletFallback(){ if(!audioCtx || workletNode) return; const code=`class MixTap extends AudioWorkletProcessor{{process(i){{const ch=i[0]?.[0];if(ch){{this.port.postMessage(ch.slice());}}return true;}}}}registerProcessor('mix-tap',MixTap);`; const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob); await audioCtx.audioWorklet.addModule(url); workletNode=new AudioWorkletNode(audioCtx,'mix-tap'); workletTap=audioCtx.createGain(); workletTap.gain.value=1.0; masterG.connect(workletTap).connect(workletNode); workletNode.port.onmessage=(e)=>{ if(recording && e.data) recBuffers.push(new Float32Array(e.data)); }; }
+function startRec(){ if(!audioCtx) return; recStatus.textContent='Recording'; recStatus.style.color='#ffb3b3'; recBadge.style.display='inline-flex'; recStartBtn.disabled=true; recStopBtn.disabled=false; recording=true; if(recorder){ recChunks.length=0; try{ recorder.start(100); }catch(e){ console.warn('MediaRecorder start failed', e); } } else { recBuffers.length=0; recSampleRate=audioCtx.sampleRate; initWorkletFallback(); } }
+function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none'; if(recorder && recorder.state!=='inactive'){ try{ recorder.stop(); }catch(e){ console.warn('MediaRecorder stop failed', e); recStatus.textContent='Idle'; } } else { const pcm16=f32ToPCM16(concatFloat32(recBuffers)); const wav=muxWAV(pcm16, recSampleRate||48000); downloadBlob(wav, 'AERIAL_v21.6_'+ts()+'.wav'); recStatus.textContent='Idle'; } }
+function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
+function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
+function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
 
-/* Recorder */
-function startRec(){ if(!audioCtx) return;
-  recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate;
-  recStartBtn.disabled=true; recStopBtn.disabled=false;
-  recStatus.textContent='Recording'; recStatus.style.color='#ffb3b3'; recBadge.style.display='inline-flex';
-}
-function stopRec(){ recording=false;
-  recStartBtn.disabled=false; recStopBtn.disabled=true;
-  recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
-  const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
-  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_4_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
-  recStatus.textContent='Idle';
-}
-recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
-
-/* Visual */
 const cvs=document.getElementById('burst'), g=cvs.getContext('2d'); let burstT=0;
 function fit(){const r=window.devicePixelRatio||1; cvs.width=innerWidth*r; cvs.height=innerHeight*r; cvs.style.width=innerWidth+'px'; cvs.style.height=innerHeight+'px'; } addEventListener('resize',fit); fit();
 function triggerBurst(){ burstT=performance.now(); }
 (function loop(){ requestAnimationFrame(loop); const now=performance.now(); const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0); g.clearRect(0,0,cvs.width,cvs.height); if(!burstT) return; const dt=(now-burstT)/1000; if(dt>0.9){ burstT=0; return; } const cx=innerWidth/2, cy=innerHeight*0.28; const rad=40+dt*420; const a=Math.max(0,1-dt*1.2); g.beginPath(); g.arc(cx,cy,rad,0,Math.PI*2); g.strokeStyle='rgba(143,211,255,'+a.toFixed(3)+')'; g.lineWidth=2+6*(1-a); g.stroke(); })();
 
-/* Boot */
 (async function boot(){
   await setup();
   try{ await audioCtx.resume(); }catch(e){};
-  setTimeout(()=>{ if(audioCtx.state!=='running'){ document.getElementById('unlock').style.display='flex'; } }, 400);
-  initSensors();
+  setTimeout(()=>{ const u=document.getElementById('unlock'); if(audioCtx.state!=='running' && u) u.style.display='flex'; }, 300);
+  refreshEnv();
   requestAnimationFrame(updateTheremin);
 })();
-btnUnlock.onclick = async ()=>{
+document.getElementById('btnUnlock')?.addEventListener('click', async ()=>{
   try{
     if(!audioCtx) await setup();
-    try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
     await audioCtx.resume();
     const s=audioCtx.createBufferSource(); s.buffer=audioCtx.createBuffer(1,1,audioCtx.sampleRate); s.connect(audioCtx.destination); s.start();
     document.getElementById('unlock').style.display='none';
   }catch(e){}
-};
+});
+
 </script>
 </body></html>
