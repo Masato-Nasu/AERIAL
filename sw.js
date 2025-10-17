@@ -1,10 +1,10 @@
-// sw.js v22.0 — normal distribution
-const V='v22.0'; const CACHE='aerial-'+V;
+// sw.js v22.1 — normal distribution
+const V='v22.1'; const CACHE='aerial-'+V;
 const ASSETS=[
   './',
-  './index.html?v=22.0',
-  './hum-theremin-recorder.html?v=22.0',
-  './manifest.json?v=22.0',
+  './index.html?v=22.1',
+  './hum-theremin-recorder.html?v=22.1',
+  './manifest.json?v=22.1',
   './icon-192.png',
   './icon-512.png',
   './Chime.mp3'
