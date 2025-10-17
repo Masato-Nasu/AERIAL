@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v19 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=19"/>
+<title>AERIAL v20 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=20"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
@@ -20,11 +20,11 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v19 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v20 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
-      <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="75"/>
+      <label>Theremin</label><input id="thgain" type="range" min="0" max="100" value="80"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="60"/>
       <label>BGM</label>
       <select id="bgmMode"><option value="file">ファイル</option></select>
@@ -49,7 +49,19 @@
   <button id="btnUnlock">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v19b: wrap-safe mapping, louder theremin, BGM/Theremin ratio control ===== */
+/* ===== v20: hard update guard + refined mapping/ratio ===== */
+// v20初回ロードで旧キャッシュを掃除（aerial-*）
+(async ()=>{
+  const VER='20', KEY='aerial_ver';
+  try{
+    const cur=localStorage.getItem(KEY);
+    if(cur!==VER && 'caches' in window){
+      for(const k of await caches.keys()){ if(k.startsWith('aerial-')) await caches.delete(k); }
+      localStorage.setItem(KEY,VER);
+    }
+  }catch(e){}
+})();
+
 let audioCtx=null, masterG, limiter;
 let therOsc, therGain;
 let chimeBuf=null, chimeGain;
@@ -81,7 +93,7 @@ function lerpAngle(prev, next, alpha){
   if(d<-180) d+=360;
   return wrap360(p + d*alpha);
 }
-// one-peak mountain: 0..360 -> [0..1], max at 180, min at 0/360. Within any 180° interval we traverse both min & max.
+// one-peak mountain: 0..360 -> [0..1], max at 180, min at 0/360. Within any 180° interval, both extremes appear.
 function onePeak(deg){ const x=wrap360(deg)*Math.PI/180; return (1-Math.cos(x))/2; }
 
 async function initRecorder(){
@@ -107,17 +119,17 @@ async function setup(){
   // Environment bus
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
-  // Theremin (make louder baseline; user can scale with slider)
+  // Theremin (louder baseline; shaped by slider & mapping)
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
-  therGain=audioCtx.createGain(); // baseline louder
-  therGain.gain.value = 0.10; // initial, will be shaped by mapping & slider below
+  therGain=audioCtx.createGain();
+  therGain.gain.value = 0.10;
   therOsc.connect(therGain).connect(masterG); therOsc.start();
 
   // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
-  // External BGM only with adjustable gain
+  // External BGM with volume control
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
   bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100;
   bgmSrc.connect(bgmGain).connect(masterG);
@@ -138,7 +150,7 @@ function showUnlock(){ overlay.style.display='flex'; }
 function hideUnlock(){ overlay.style.display='none'; }
 
 /* ===== Sensors & Theremin mapping ===== */
-const state={yaw:180,pitch:180,roll:180}; // start mid
+const state={yaw:180,pitch:180,roll:180};
 function handleOrient(e){
   const yawRaw = wrap360(typeof e.alpha==='number'?e.alpha:0);
   const pitchRaw = wrap360(typeof e.beta==='number'?e.beta:0);
@@ -148,18 +160,17 @@ function handleOrient(e){
   state.pitch = lerpAngle(state.pitch, pitchRaw, 0.14);
   state.roll = lerpAngle(state.roll, rollRaw, 0.14);
 
-  // one-peak mountain per axis; within any 180° segment, both max and min appear
-  const P = onePeak(state.pitch);
-  const R = onePeak(state.roll);
+  const P = onePeak(state.pitch); // 0..1
+  const R = onePeak(state.roll);  // 0..1
 
-  // Frequency from blended peaks
+  // Frequency from blended peaks (peak @180°)
   const base=220, range=900;
   const f = base + (P*0.6 + R*0.4) * range;
   if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3000), audioCtx.currentTime, 0.03);
 
-  // Volume shaped by roll peak + user slider
+  // Volume from roll-peak + user slider
   const user = parseInt(thgainEl.value,10)/100;
-  const vol = (0.05 + R * 0.13) * user; // louder than before
+  const vol = (0.05 + R * 0.13) * user;
   if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
 }
 
@@ -189,7 +200,7 @@ function triggerBurst(){ burstT=performance.now(); }
 
 /* ===== Recorder UI ===== */
 function startRec(){ if(!audioCtx) return; recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
-function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v19_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
+function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v20_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 
 /* ===== BGM: external file only + volume control ===== */
@@ -201,7 +212,7 @@ function handleBgmState(){
   setEnvMuted(active);
 }
 
-/* ===== Environment generators (same as v19) ===== */
+/* ===== Environment generators ===== */
 function setEnvMuted(muted){
   if(!envMaster || !audioCtx) return;
   const target = muted ? 0.0 : (anyEnvSelected()? 0.35 : 0.0);
@@ -212,7 +223,6 @@ function anyEnvSelected(){ return Object.values(envChecks).some(cb=>cb.checked);
 
 function noiseBuffer(seconds=2){ const b=audioCtx.createBuffer(1,Math.max(1,Math.floor(audioCtx.sampleRate*seconds)),audioCtx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1); } return b; }
 
-const env={};
 function env_start(type){
   if(env[type]?.on) return;
   env[type]={on:true, stop:()=>{}};

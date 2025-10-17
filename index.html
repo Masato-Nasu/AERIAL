@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v19</title>
-<link rel="manifest" href="manifest.json?v=19"/>
+<title>AERIAL v20</title>
+<link rel="manifest" href="manifest.json?v=20"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
@@ -12,15 +12,27 @@
 </head><body>
 <div class="wrap">
   <div>
-    <h1 style="font-weight:500;margin:0 0 12px">AERIAL v19 — Distributable Edition</h1>
-    <p><a href="hum-theremin-recorder.html?v=19">▶ Launch</a></p>
+    <h1 style="font-weight:500;margin:0 0 12px">AERIAL v20 — Distributable Edition</h1>
+    <p><a href="hum-theremin-recorder.html?v=20&bust='+Date.now()+'">▶ Launch</a></p>
   </div>
 </div>
 <script>
+// 強制更新: Service Worker を必ず取りにいく
 if('serviceWorker' in navigator){
   addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=19&bust='+Date.now()); }catch(e){}
+    try{ await navigator.serviceWorker.register('./sw.js?v=20&bust='+Date.now()); }catch(e){}
   });
 }
+// v20初回起動時に既存キャッシュ(aerial-*)を掃除
+(async ()=>{
+  const VER='20', KEY='aerial_ver';
+  try{
+    const cur=localStorage.getItem(KEY);
+    if(cur!==VER && 'caches' in window){
+      for(const k of await caches.keys()){ if(k.startsWith('aerial-')) await caches.delete(k); }
+      localStorage.setItem(KEY,VER);
+    }
+  }catch(e){}
+})();
 </script>
 </body></html>
