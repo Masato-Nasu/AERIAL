@@ -3,8 +3,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v21.1 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=21.1"/>
+<title>AERIAL v21.2 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=21.2"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
@@ -29,14 +29,15 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v21.1 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v21.2 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause" class="btn">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="60"/>
       <button id="btnPick" class="btn btn-choose">音楽を選ぶ</button>
       <button id="btnStopMusic" class="btn btn-stop" disabled>音楽を止める</button>
-      <input id="bgmFile" type="file" accept="audio/*" style="display:none"/>
+      <!-- recorder を出しにくくするため拡張子リストのみ（capture属性なし） -->
+      <input id="bgmFile" type="file" accept=".mp3,.m4a,.aac,.wav,.ogg,.flac,.aiff,.aif,.opus,.mka" style="display:none"/>
       <button id="recStart" class="btn">🎙 Start Recording</button>
       <button id="recStop" class="btn" disabled>⏹ Stop</button>
       <span id="recStatus" class="muted">Idle</span>
@@ -51,7 +52,7 @@
       <label class="chk"><input type="checkbox" id="env-cafe"/>カフェ</label>
       <span class="muted">※ 外部BGM再生中は自動ミュート（BGM Vol は環境音の音量にも反映）</span>
     </div>
-    <p class="muted">傾きでTheremin（ほわん系）：<b>ピッチ90°が最高音・最大音量</b>。0/360継ぎ目なしの円環補間。録音はWAV保存。</p>
+    <p class="muted">傾きでTheremin（ほわん系）：<b>画面を下向きで最小音、上向きで最大音</b>。0/360継ぎ目なし。録音はWAV保存。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
@@ -60,9 +61,9 @@
   <button id="btnUnlock" class="btn">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v21.1: new audio behavior ===== */
+/* ===== v21.2: tilt mapping by gravity-z; picker constrained ===== */
 (async ()=>{
-  const VER='21.1', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_1';
+  const VER='21.2', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_2';
   try{
     if(!localStorage.getItem(RESET)){
       if('serviceWorker' in navigator){
@@ -73,7 +74,7 @@
         for(const k of await caches.keys()){ await caches.delete(k); }
       }
       localStorage.setItem(RESET,'1');
-      location.replace(location.pathname+'?v=21.1&bust='+Date.now());
+      location.replace(location.pathname+'?v=21.2&bust='+Date.now());
       return;
     }
     localStorage.setItem(KEY,VER);
@@ -114,7 +115,13 @@ function lerpAngle(prev, next, alpha){
   if(d<-180) d+=360;
   return wrap360(p + d*alpha);
 }
-function onePeak90(deg){ const x=((wrap360(deg)-90)+360)%360 * Math.PI/180; return (1-Math.cos(x))/2; }
+
+let tiltUp = 0.5, tiltHasMotion=false; // 0: face-down, 1: face-up
+
+function onePeakFallback(deg){ // fallback using beta when motion not available
+  const x=((wrap360(deg)-90)+360)%360 * Math.PI/180; 
+  return (1-Math.cos(x))/2;
+}
 
 async function setup(){
   if(audioCtx) return;
@@ -127,20 +134,18 @@ async function setup(){
   // Environment bus
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
-  // Theremin signal chain: sine -> gentle LPF -> VCA; add tremolo & vibrato for "ほわん"
+  // Theremin chain with soft tone
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
   therFilter=audioCtx.createBiquadFilter(); therFilter.type='lowpass'; therFilter.frequency.value=2600; therFilter.Q.value=0.7;
-  therGain=audioCtx.createGain(); therGain.gain.value=0.06; // base level; main loudness via mapping below
+  therGain=audioCtx.createGain(); therGain.gain.value=0.06;
   therOsc.connect(therFilter).connect(therGain).connect(masterG); therOsc.start();
 
-  // Tremolo (amp LFO)
-  lfoAmp=audioCtx.createOscillator(); lfoAmp.type='sine'; lfoAmp.frequency.value=1.2; // ほわん
-  lfoAmpG=audioCtx.createGain(); lfoAmpG.gain.value=0.06; // tremolo depth
+  // Tremolo & Vibrato
+  lfoAmp=audioCtx.createOscillator(); lfoAmp.type='sine'; lfoAmp.frequency.value=1.2;
+  lfoAmpG=audioCtx.createGain(); lfoAmpG.gain.value=0.06;
   lfoAmp.connect(lfoAmpG).connect(therGain.gain); lfoAmp.start();
-
-  // Vibrato (freq LFO)
   lfoVib=audioCtx.createOscillator(); lfoVib.type='sine'; lfoVib.frequency.value=5.5;
-  lfoVibG=audioCtx.createGain(); lfoVibG.gain.value=6; // ±6 Hz
+  lfoVibG=audioCtx.createGain(); lfoVibG.gain.value=6;
   lfoVib.connect(lfoVibG).connect(therOsc.frequency); lfoVib.start();
 
   // Chime
@@ -165,7 +170,6 @@ function syncSharedVolume(){
   if(!audioCtx) return;
   const v = parseInt(bgmVolEl.value,10)/100;
   if(bgmGain) bgmGain.gain.value=v;
-  // apply to env master as well (max cap for natural level)
   const activeBgm = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
   const target = activeBgm ? 0.0 : (anyEnvSelected()? v*0.35 : 0.0);
   envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
@@ -203,181 +207,45 @@ function setEnvMuted(muted){
 }
 function anyEnvSelected(){ return Object.values(envChecks).some(cb=>cb.checked); }
 
-function noiseBuffer(seconds=2){ const b=audioCtx.createBuffer(1,Math.max(1,Math.floor(audioCtx.sampleRate*seconds)),audioCtx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1); } return b; }
-function pinkNoiseBuffer(seconds=2){
-  const sr=audioCtx.sampleRate, n=Math.max(1,Math.floor(sr*seconds));
-  const b=audioCtx.createBuffer(1,n,sr); const d=b.getChannelData(0);
-  let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-  for(let i=0;i<n;i++){
-    const white=Math.random()*2-1;
-    b0=0.99886*b0 + white*0.0555179;
-    b1=0.99332*b1 + white*0.0750759;
-    b2=0.96900*b2 + white*0.1538520;
-    b3=0.86650*b3 + white*0.3104856;
-    b4=0.55000*b4 + white*0.5329522;
-    b5=-0.7616*b5 - white*0.0168980;
-    d[i]=b0+b1+b2+b3+b4+b5+b6*0.5362;
-    d[i]*=0.11;
-    b6=white*0.115926;
-  }
-  return b;
-}
-
-function env_start(type){
-  if(env[type]?.on) return;
-  env[type]={on:true, stop:()=>{}};
-  const panOK = typeof audioCtx.createStereoPanner === 'function';
-  const mkPanner = ()=> panOK ? audioCtx.createStereoPanner() : null;
-
-  switch(type){
-    case 'wind':{
-      const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(4); src.loop=true;
-      const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700;
-      const lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.08;
-      const lfoG=audioCtx.createGain(); lfoG.gain.value=500; lfo.connect(lfoG).connect(lp.frequency); lfo.start();
-      const g=audioCtx.createGain(); g.gain.value=0.32;
-      const p=mkPanner(); if(p){p.pan.value=0; src.connect(lp).connect(g).connect(p).connect(envMaster);} else { src.connect(lp).connect(g).connect(envMaster); }
-      src.start();
-      env[type].stop=()=>{ try{src.stop();}catch{} lfo.stop(); };
-    }break;
-    case 'waves':{
-      const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(4); src.loop=true;
-      const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=180; bp.Q.value=0.6;
-      const swell=audioCtx.createOscillator(); swell.type='sine'; swell.frequency.value=0.16;
-      const swellG=audioCtx.createGain(); swellG.gain.value=0.35;
-      const g=audioCtx.createGain(); g.gain.value=0.32;
-      swell.connect(swellG).connect(g.gain);
-      const p=mkPanner(); if(p){p.pan.value=-0.2; src.connect(bp).connect(g).connect(p).connect(envMaster);} else { src.connect(bp).connect(g).connect(envMaster); }
-      src.start(); swell.start();
-      env[type].stop=()=>{ try{src.stop();}catch{} swell.stop(); };
-    }break;
-    case 'rain':{
-      const base=audioCtx.createBufferSource(); base.buffer=pinkNoiseBuffer(3); base.loop=true;
-      const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200;
-      const g=audioCtx.createGain(); g.gain.value=0.18;
-      const p=mkPanner(); if(p){p.pan.value=0; base.connect(hp).connect(g).connect(p).connect(envMaster);} else { base.connect(hp).connect(g).connect(envMaster); }
-      base.start();
-      let alive=true;
-      function drop(){
-        if(!alive) return;
-        const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(0.12);
-        const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2800; bp.Q.value=6;
-        const eg=audioCtx.createGain(); eg.gain.value=0.0;
-        const pan=mkPanner(); if(pan) pan.pan.value=(Math.random()*2-1)*0.8;
-        (pan? src.connect(bp).connect(eg).connect(pan).connect(envMaster) : src.connect(bp).connect(eg).connect(envMaster));
-        const t=audioCtx.currentTime;
-        eg.gain.setValueAtTime(0.0,t);
-        eg.gain.linearRampToValueAtTime(0.9,t+0.005);
-        eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
-        src.start(t); src.stop(t+0.22);
-        setTimeout(drop, 60+Math.random()*90);
-      }
-      drop();
-      env[type].stop=()=>{ alive=false; try{base.stop();}catch{} };
-    }break;
-    case 'cafe':{
-      const voices=[];
-      const centers=[600, 850, 1100, 1400];
-      for(const fc of centers){
-        const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(2.5); src.loop=true;
-        const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=fc; bp.Q.value=1.2;
-        const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.7+Math.random()*1.2;
-        const amG=audioCtx.createGain(); amG.gain.value=0.22+Math.random()*0.18;
-        const g=audioCtx.createGain(); g.gain.value=0.18;
-        const pan=typeof audioCtx.createStereoPanner==='function'?audioCtx.createStereoPanner():null;
-        if(pan) pan.pan.value=(Math.random()*2-1)*0.6;
-        am.connect(amG).connect(g.gain);
-        (pan? src.connect(bp).connect(g).connect(pan).connect(envMaster) : src.connect(bp).connect(g).connect(envMaster));
-        src.start(); am.start();
-        voices.push(()=>{ try{src.stop();}catch{} try{am.stop();}catch{} });
-      }
-      env[type].stop=()=>{ voices.forEach(fn=>fn()); };
-    }break;
-    case 'birds':{
-      const g=audioCtx.createGain(); g.gain.value=0.14;
-      g.connect(envMaster);
-      let alive=true;
-      function chirp(){
-        if(!alive) return;
-        const c=audioCtx.createOscillator(); c.type='sine';
-        const m=audioCtx.createOscillator(); m.type='sine';
-        const idx=audioCtx.createGain(); idx.gain.value=900;
-        m.frequency.value=1200+Math.random()*800;
-        c.frequency.value=2200+Math.random()*1800;
-        m.connect(idx).connect(c.frequency);
-        const eg=audioCtx.createGain(); eg.gain.value=0.0;
-        const pan=(typeof audioCtx.createStereoPanner==='function')?audioCtx.createStereoPanner():null;
-        (pan? (eg.connect(pan),pan.connect(g)) : eg.connect(g));
-        c.connect(eg);
-        const t=audioCtx.currentTime;
-        eg.gain.setValueAtTime(0.0,t);
-        eg.gain.linearRampToValueAtTime(0.6,t+0.02);
-        eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
-        if(pan){ pan.pan.setValueAtTime((Math.random()*2-1)*0.7, t); }
-        c.start(t); m.start(t);
-        c.stop(t+0.2); m.stop(t+0.2);
-        setTimeout(chirp, 250+Math.random()*900);
-      }
-      chirp();
-      env[type].stop=()=>{ alive=false; };
-    }break;
-  }
-}
-function env_stop(type){
-  if(!env[type]?.on) return;
-  try{ env[type].stop(); }catch(e){}
-  env[type].on=false;
-}
-function refreshEnv(){
-  if(!audioCtx) return;
-  for(const [k,cb] of Object.entries(envChecks)){
-    if(cb.checked){ env_start(k); } else { env_stop(k); }
-  }
-  setEnvMuted(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
-}
-Object.entries(envChecks).forEach(([k,cb])=>cb.addEventListener('change', refreshEnv, {passive:true}));
-
-/* Sensors: peak at pitch=90° */
-const state={pitch:90, roll:0, yaw:0};
+/* ===== Sensors: gravity-z for face-up/down mapping ===== */
+const state={beta:90};
 function handleOrient(e){
-  const yawRaw = wrap360(typeof e.alpha==='number'?e.alpha:0);
-  const pitchRaw = wrap360(typeof e.beta==='number'?e.beta:0);
-  const rollRaw = wrap360(typeof e.gamma==='number'?e.gamma:0);
-
-  state.yaw = lerpAngle(state.yaw, yawRaw, 0.14);
-  state.pitch = lerpAngle(state.pitch, pitchRaw, 0.14);
-  state.roll = lerpAngle(state.roll, rollRaw, 0.14);
-
-  const P = onePeak90(state.pitch); // 0..1, peak at 90°
-
-  // Wider range & brighter as it gets louder
-  const base=220, range=1100;
-  const f = base + P * range;
-  if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3200), audioCtx.currentTime, 0.03);
-
-  const vol = 0.05 + P * 0.30; // ↑ max volume
-  if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
-
-  // Subtle tone opening with pitch
-  if(therFilter && audioCtx) therFilter.frequency.linearRampToValueAtTime(1800 + P*2600, audioCtx.currentTime+0.06);
+  // only used as fallback when no motion; keep beta for fallback
+  state.beta = (typeof e.beta==='number') ? e.beta : state.beta;
 }
-
 function handleMotion(e){
-  const a=e.accelerationIncludingGravity; if(!a) return; const mag=Math.hypot(a.x||0,a.y||0,a.z||0); const now=performance.now();
+  const a=e.accelerationIncludingGravity; 
+  if(a){
+    // z axis: 約 +9.8 (face-down), 約 -9.8 (face-up) on most browsers
+    const z=a.z||0;
+    const up = Math.max(0, Math.min(1, ( -z + 9.81 ) / 19.62 ));
+    // smooth
+    tiltUp = tiltUp*0.9 + up*0.1;
+    tiltHasMotion = true;
+  }
+  // shake to chime
+  const mag=Math.hypot(a?.x||0,a?.y||0,a?.z||0); const now=performance.now();
   if(mag>28 && (!window._lastShake || now-window._lastShake>600)){ window._lastShake=now; playChime(); triggerBurst(); }
 }
 
-async function initSensors(){
-  try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ await DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
-  window.addEventListener('deviceorientation',handleOrient,true);
-  window.addEventListener('devicemotion',handleMotion,true);
-  window.addEventListener('pointermove',(ev)=>{
-    const w=innerWidth,h=innerHeight;const nx=(ev.clientX/w);const ny=(ev.clientY/h);
-    handleOrient({alpha:nx*360,beta:ny*360,gamma:nx*360});
-  },{passive:true});
+function drivingP(){
+  if(tiltHasMotion) return tiltUp; // 0..1
+  // fallback: beta centered at 90° (screen-up)
+  return onePeakFallback(state.beta);
 }
 
-function playChime(){ if(!chimeBuf||!audioCtx) return; const s=audioCtx.createBufferSource(); s.buffer=chimeBuf; s.connect(chimeGain); s.start(); }
+/* ===== Theremin update loop ===== */
+function updateTheremin(){
+  if(!audioCtx) return;
+  const P = drivingP(); // 0: face-down, 1: face-up
+  const base=220, range=1100;
+  const f = base + P * range;
+  therOsc.frequency.setTargetAtTime(Math.max(40,Math.min(3200,f)), audioCtx.currentTime, 0.03);
+  const vol = 0.05 + P * 0.30;
+  therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
+  therFilter.frequency.linearRampToValueAtTime(1800 + P*2600, audioCtx.currentTime+0.06);
+  requestAnimationFrame(updateTheremin);
+}
 
 /* UI Buttons */
 btnPick.onclick=()=> bgmFile.click();
@@ -396,7 +264,7 @@ function stopRec(){ recording=false;
   recStartBtn.disabled=false; recStopBtn.disabled=true;
   recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
   const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
-  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_1_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_2_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
   recStatus.textContent='Idle';
 }
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
@@ -412,6 +280,7 @@ function triggerBurst(){ burstT=performance.now(); }
   await setup();
   try{ await audioCtx.resume(); }catch(e){};
   setTimeout(()=>{ if(audioCtx.state!=='running'){ document.getElementById('unlock').style.display='flex'; } }, 400);
+  requestAnimationFrame(updateTheremin);
 })();
 btnUnlock.onclick = async ()=>{
   try{
