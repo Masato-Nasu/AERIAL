@@ -3,8 +3,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v21.2</title>
-<link rel="manifest" href="manifest.json?v=21.2"/>
+<title>AERIAL v21.3</title>
+<link rel="manifest" href="manifest.json?v=21.3"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   body{margin:0;background:#0b0d11;color:#e6e6e6;font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
@@ -14,14 +14,14 @@
 </head><body>
 <div class="wrap">
   <div>
-    <h1 style="font-weight:500;margin:0 0 12px">AERIAL v21.2 — Distributable Edition</h1>
-    <p><a href="hum-theremin-recorder.html?v=21.2&bust='+Date.now()+'">▶ Launch</a></p>
+    <h1 style="margin:0 0 12px">AERIAL v21.3 — Distributable Edition</h1>
+    <p><a href="hum-theremin-recorder.html?v=21.3&bust='+Date.now()+'">▶ Launch</a></p>
   </div>
 </div>
 <script>
-// ===== v21.2: hard reset once, then register SW =====
+// ===== v21.3: hard reset once, then register SW =====
 (async ()=>{
-  const VER='21.2', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_2';
+  const VER='21.3', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_3';
   try{
     if(!localStorage.getItem(RESET)){
       if('serviceWorker' in navigator){
@@ -32,7 +32,7 @@
         for(const k of await caches.keys()){ await caches.delete(k); }
       }
       localStorage.setItem(RESET,'1');
-      location.replace(location.pathname+'?v=21.2&bust='+Date.now());
+      location.replace(location.pathname+'?v=21.3&bust='+Date.now());
       return;
     }
     localStorage.setItem(KEY,VER);
@@ -41,7 +41,7 @@
 
 if('serviceWorker' in navigator){
   addEventListener('load', async ()=>{
-    try{ await navigator.serviceWorker.register('./sw.js?v=21.2&bust='+Date.now()); }catch(e){}
+    try{ await navigator.serviceWorker.register('./sw.js?v=21.3&bust='+Date.now()); }catch(e){}
   });
 }
 </script>
