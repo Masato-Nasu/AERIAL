@@ -1,10 +1,10 @@
-// sw.js v21.3 — AERIAL Distributable
-const V='v21.3'; const CACHE='aerial-'+V;
+// sw.js v21.4 — AERIAL Distributable
+const V='v21.4'; const CACHE='aerial-'+V;
 const ASSETS=[
   './',
-  './index.html?v=21.3',
-  './hum-theremin-recorder.html?v=21.3',
-  './manifest.json?v=21.3',
+  './index.html?v=21.4',
+  './hum-theremin-recorder.html?v=21.4',
+  './manifest.json?v=21.4',
   './icon-192.png',
   './icon-512.png',
   './Chime.mp3'

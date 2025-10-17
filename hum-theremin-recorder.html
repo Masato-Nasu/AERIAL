@@ -3,8 +3,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v21.3 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=21.3"/>
+<title>AERIAL v21.4 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=21.4"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
@@ -29,15 +29,15 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v21.3 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v21.4 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause" class="btn">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="60"/>
       <button id="btnPick" class="btn btn-choose">音楽を選ぶ</button>
       <button id="btnStopMusic" class="btn btn-stop" disabled>音楽を止める</button>
-      <!-- recorder を出しにくくするため拡張子リストのみ（capture属性なし / audio/* も使わない） -->
-      <input id="bgmFile" type="file" accept=".mp3,.m4a,.aac,.wav,.ogg,.flac,.aiff,.aif,.opus,.mka" style="display:none"/>
+      <!-- recorder を抑止: MIME を application/octet-stream を先頭に、拡張子列を追加。audio/* は使わない -->
+      <input id="bgmFile" type="file" accept="application/octet-stream,.mp3,.m4a,.aac,.wav,.ogg,.flac,.aiff,.aif,.opus,.mka" style="display:none"/>
       <button id="recStart" class="btn">🎙 Start Recording</button>
       <button id="recStop" class="btn" disabled>⏹ Stop</button>
       <span id="recStatus" class="muted">Idle</span>
@@ -52,7 +52,7 @@
       <label class="chk"><input type="checkbox" id="env-cafe"/>カフェ</label>
       <span class="muted">※ 外部BGM再生中は自動ミュート（BGM Vol は環境音の音量にも反映）</span>
     </div>
-    <p class="muted">傾きでTheremin（ほわん系）：<b>β角 0°で最小音、180°で最大音</b>（0〜180で単調に変化）。録音はWAV保存。</p>
+    <p class="muted">β角で制御：<b>0°で最小音・180°で最大音</b>。録音はWAV保存。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
@@ -61,9 +61,8 @@
   <button id="btnUnlock" class="btn">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v21.3: beta(0->180) mapping; picker without recorder ===== */
 (async ()=>{
-  const VER='21.3', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_3';
+  const VER='21.4', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_4';
   try{
     if(!localStorage.getItem(RESET)){
       if('serviceWorker' in navigator){
@@ -74,7 +73,7 @@
         for(const k of await caches.keys()){ await caches.delete(k); }
       }
       localStorage.setItem(RESET,'1');
-      location.replace(location.pathname+'?v=21.3&bust='+Date.now());
+      location.replace(location.pathname+'?v=21.4&bust='+Date.now());
       return;
     }
     localStorage.setItem(KEY,VER);
@@ -111,11 +110,9 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 let betaFilt = 0; // smoothed beta in [-180,180]
 
 function mapBetaToP(beta){
-  // normalize to [-180,180]
   let b = beta;
   if (b > 180) b -= 360;
   if (b < -180) b += 360;
-  // fold to [0,180], then scale to [0,1]
   const folded = Math.min(180, Math.max(0, Math.abs(b)));
   return folded / 180;
 }
@@ -128,28 +125,25 @@ async function setup(){
   masterG.connect(limiter).connect(audioCtx.destination);
   masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
 
-  // Environment bus
+  // Environment bus (a bit louder base)
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
-  // Theremin chain with soft tone
+  // Theremin chain
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
   therFilter=audioCtx.createBiquadFilter(); therFilter.type='lowpass'; therFilter.frequency.value=2600; therFilter.Q.value=0.7;
   therGain=audioCtx.createGain(); therGain.gain.value=0.06;
   therOsc.connect(therFilter).connect(therGain).connect(masterG); therOsc.start();
-
-  // Tremolo & Vibrato
+  // tremolo & vibrato
   lfoAmp=audioCtx.createOscillator(); lfoAmp.type='sine'; lfoAmp.frequency.value=1.2;
-  lfoAmpG=audioCtx.createGain(); lfoAmpG.gain.value=0.06;
-  lfoAmp.connect(lfoAmpG).connect(therGain.gain); lfoAmp.start();
+  lfoAmpG=audioCtx.createGain(); lfoAmpG.gain.value=0.06; lfoAmp.connect(lfoAmpG).connect(therGain.gain); lfoAmp.start();
   lfoVib=audioCtx.createOscillator(); lfoVib.type='sine'; lfoVib.frequency.value=5.5;
-  lfoVibG=audioCtx.createGain(); lfoVibG.gain.value=6;
-  lfoVib.connect(lfoVibG).connect(therOsc.frequency); lfoVib.start();
+  lfoVibG=audioCtx.createGain(); lfoVibG.gain.value=6; lfoVib.connect(lfoVibG).connect(therOsc.frequency); lfoVib.start();
 
   // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
-  // External BGM + shared volume
+  // BGM + shared volume
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
   bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain();
   const initVol=parseInt(bgmVolEl.value,10)/100;
@@ -169,16 +163,12 @@ function syncSharedVolume(){
   const v = parseInt(bgmVolEl.value,10)/100;
   if(bgmGain) bgmGain.gain.value=v;
   const activeBgm = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
-  const target = activeBgm ? 0.0 : (anyEnvSelected()? v*0.35 : 0.0);
+  const target = activeBgm ? 0.0 : (anyEnvSelected()? Math.max(0.15, v*0.45) : 0.0);
   envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
   envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.05);
 }
-
 function handleBgmState(){ updateStopButton(); syncSharedVolume(); }
-function updateStopButton(){
-  const running = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
-  btnStopMusic.disabled = !running;
-}
+function updateStopButton(){ const running = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); btnStopMusic.disabled = !running; }
 
 async function initRecorder(){
   if(!audioCtx) return;
@@ -196,19 +186,20 @@ function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v
 function setEnvMuted(muted){
   if(!envMaster || !audioCtx) return;
   const v = parseInt(bgmVolEl.value,10)/100;
-  const target = muted ? 0.0 : (anyEnvSelected()? v*0.35 : 0.0);
+  const target = muted ? 0.0 : (anyEnvSelected()? Math.max(0.15, v*0.45) : 0.0);
   envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
   envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.08);
 }
 function anyEnvSelected(){ return Object.values(envChecks).some(cb=>cb.checked); }
 
-/* ===== Orientation listeners ===== */
+/* Orientation */
 function handleOrient(e){
   if(typeof e.beta === 'number'){
     let b = e.beta;
     if (b > 180) b -= 360;
     if (b < -180) b += 360;
-    betaFilt = betaFilt*0.9 + b*0.1; // smooth
+    // slightly faster smoothing
+    betaFilt = betaFilt*0.85 + b*0.15;
   }
 }
 function handleMotion(e){
@@ -220,12 +211,10 @@ function initSensors(){
   try{ if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ DeviceMotionEvent.requestPermission().catch(()=>{});} }catch(e){}
   addEventListener('deviceorientation',handleOrient,true);
   addEventListener('devicemotion',handleMotion,true);
-  addEventListener('pointermove',(ev)=>{ // desktop fallback
-    const ny=(ev.clientY/innerHeight); const beta = ny*180; handleOrient({beta}); 
-  },{passive:true});
+  addEventListener('pointermove',(ev)=>{ const ny=(ev.clientY/innerHeight); const beta=ny*180; handleOrient({beta}); },{passive:true});
 }
 
-/* ===== Theremin update loop ===== */
+/* Update loop */
 function updateTheremin(){
   if(!audioCtx) return requestAnimationFrame(updateTheremin);
   const P = mapBetaToP(betaFilt); // 0 at 0°, 1 at 180°
@@ -238,14 +227,23 @@ function updateTheremin(){
   requestAnimationFrame(updateTheremin);
 }
 
-/* UI Buttons */
-btnPick.onclick=()=> bgmFile.click();
-bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
+/* UI */
+btnPick.onclick=()=>{
+  // Prefer showPicker to avoid capture UIs
+  if('showPicker' in HTMLInputElement.prototype){
+    bgmFile.showPicker();
+  }else{
+    bgmFile.click();
+  }
+};
 btnStopMusic.onclick=()=>{ try{ bgmEl.pause(); bgmEl.currentTime=0; bgmEl.src=''; }catch(e){} updateStopButton(); handleBgmState(); };
-
+bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return;
+  const okExt = /\.(mp3|m4a|aac|wav|ogg|flac|aiff?|opus|mka)$/i.test(f.name);
+  if(!okExt){ alert('音楽ファイル（mp3/m4a/aac/wav/ogg/flac/aiff/opus/mka）を選んでください'); e.target.value=''; return; }
+  const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(ex){} };
 btnPause.onclick=async ()=>{ if(audioCtx) { if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } } };
 
-/* Recorder with indicator */
+/* Recorder */
 function startRec(){ if(!audioCtx) return;
   recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate;
   recStartBtn.disabled=true; recStopBtn.disabled=false;
@@ -255,12 +253,12 @@ function stopRec(){ recording=false;
   recStartBtn.disabled=false; recStopBtn.disabled=true;
   recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
   const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
-  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_3_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_4_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
   recStatus.textContent='Idle';
 }
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 
-/* Burst visual */
+/* Visual */
 const cvs=document.getElementById('burst'), g=cvs.getContext('2d'); let burstT=0;
 function fit(){const r=window.devicePixelRatio||1; cvs.width=innerWidth*r; cvs.height=innerHeight*r; cvs.style.width=innerWidth+'px'; cvs.style.height=innerHeight+'px'; } addEventListener('resize',fit); fit();
 function triggerBurst(){ burstT=performance.now(); }
