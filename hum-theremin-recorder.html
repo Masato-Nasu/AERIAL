@@ -3,8 +3,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v21 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=21"/>
+<title>AERIAL v21.1 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=21.1"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
@@ -21,6 +21,7 @@
   #unlock > div{background:#0f1320;border:1px solid #253043;border-radius:14px;padding:16px 18px;text-align:center}
   .btn{cursor:pointer}
   .btn-choose{background:#142245;border-color:#29406e}
+  .btn-stop{background:#3a1616;border-color:#703030}
   .rec-badge{display:inline-flex;align-items:center;gap:8px;padding:4px 8px;border-radius:10px;border:1px solid #442; background:#1a0a0a;color:#ffb3b3}
   .rec-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
   @keyframes blink{0%,55%{opacity:1}75%{opacity:.25}100%{opacity:1}}
@@ -28,12 +29,13 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v21 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v21.1 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause" class="btn">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="60"/>
       <button id="btnPick" class="btn btn-choose">音楽を選ぶ</button>
+      <button id="btnStopMusic" class="btn btn-stop" disabled>音楽を止める</button>
       <input id="bgmFile" type="file" accept="audio/*" style="display:none"/>
       <button id="recStart" class="btn">🎙 Start Recording</button>
       <button id="recStop" class="btn" disabled>⏹ Stop</button>
@@ -47,9 +49,9 @@
       <label class="chk"><input type="checkbox" id="env-waves"/>波</label>
       <label class="chk"><input type="checkbox" id="env-rain"/>雨</label>
       <label class="chk"><input type="checkbox" id="env-cafe"/>カフェ</label>
-      <span class="muted">※ 外部BGM再生中は自動ミュート</span>
+      <span class="muted">※ 外部BGM再生中は自動ミュート（BGM Vol は環境音の音量にも反映）</span>
     </div>
-    <p class="muted">傾きでTheremin（正弦波）：<b>ピッチ90°が最高音・最大音量</b>。0/360継ぎ目なしの円環補間。振るとチャイム。録音はWAV保存。マイクは使いません。</p>
+    <p class="muted">傾きでTheremin（ほわん系）：<b>ピッチ90°が最高音・最大音量</b>。0/360継ぎ目なしの円環補間。録音はWAV保存。</p>
   </section>
 </main>
 <canvas id="burst"></canvas>
@@ -58,9 +60,9 @@
   <button id="btnUnlock" class="btn">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v21: hard reset once ===== */
+/* ===== v21.1: new audio behavior ===== */
 (async ()=>{
-  const VER='21', KEY='aerial_ver', RESET='aerial_sw_reset_done_21';
+  const VER='21.1', KEY='aerial_ver', RESET='aerial_sw_reset_done_21_1';
   try{
     if(!localStorage.getItem(RESET)){
       if('serviceWorker' in navigator){
@@ -71,7 +73,7 @@
         for(const k of await caches.keys()){ await caches.delete(k); }
       }
       localStorage.setItem(RESET,'1');
-      location.replace(location.pathname+'?v=21&bust='+Date.now());
+      location.replace(location.pathname+'?v=21.1&bust='+Date.now());
       return;
     }
     localStorage.setItem(KEY,VER);
@@ -79,7 +81,7 @@
 })();
 
 let audioCtx=null, masterG;
-let therOsc, therGain;
+let therOsc, therGain, therFilter, lfoAmp, lfoAmpG, lfoVib, lfoVibG;
 let chimeBuf=null, chimeGain;
 let bgmEl=null, bgmSrc=null, bgmGain=null;
 let recNode, recBuffers=[], recording=false, recSampleRate=48000;
@@ -88,6 +90,7 @@ let envMaster=null, env={};
 const masterEl=document.getElementById('master');
 const bgmVolEl=document.getElementById('bgmVol');
 const btnPick=document.getElementById('btnPick');
+const btnStopMusic=document.getElementById('btnStopMusic');
 const bgmFile=document.getElementById('bgmFile');
 const recStartBtn=document.getElementById('recStart'), recStopBtn=document.getElementById('recStop'), recStatus=document.getElementById('recStatus');
 const recBadge=document.getElementById('recBadge');
@@ -111,34 +114,71 @@ function lerpAngle(prev, next, alpha){
   if(d<-180) d+=360;
   return wrap360(p + d*alpha);
 }
-// one-peak centered at 90°
 function onePeak90(deg){ const x=((wrap360(deg)-90)+360)%360 * Math.PI/180; return (1-Math.cos(x))/2; }
 
 async function setup(){
   if(audioCtx) return;
   audioCtx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
   masterG=audioCtx.createGain(); masterG.gain.value=parseInt(masterEl.value,10)/100;
-  const limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-8;limiter.knee.value=12;limiter.ratio.value=12;limiter.attack.value=0.003;limiter.release.value=0.25;
+  const limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-6;limiter.knee.value=14;limiter.ratio.value=14;limiter.attack.value=0.003;limiter.release.value=0.25;
   masterG.connect(limiter).connect(audioCtx.destination);
   masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
 
+  // Environment bus
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
+  // Theremin signal chain: sine -> gentle LPF -> VCA; add tremolo & vibrato for "ほわん"
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
-  therGain=audioCtx.createGain(); therGain.gain.value=0.05; // base; loudness driven by pitch
-  therOsc.connect(therGain).connect(masterG); therOsc.start();
+  therFilter=audioCtx.createBiquadFilter(); therFilter.type='lowpass'; therFilter.frequency.value=2600; therFilter.Q.value=0.7;
+  therGain=audioCtx.createGain(); therGain.gain.value=0.06; // base level; main loudness via mapping below
+  therOsc.connect(therFilter).connect(therGain).connect(masterG); therOsc.start();
 
+  // Tremolo (amp LFO)
+  lfoAmp=audioCtx.createOscillator(); lfoAmp.type='sine'; lfoAmp.frequency.value=1.2; // ほわん
+  lfoAmpG=audioCtx.createGain(); lfoAmpG.gain.value=0.06; // tremolo depth
+  lfoAmp.connect(lfoAmpG).connect(therGain.gain); lfoAmp.start();
+
+  // Vibrato (freq LFO)
+  lfoVib=audioCtx.createOscillator(); lfoVib.type='sine'; lfoVib.frequency.value=5.5;
+  lfoVibG=audioCtx.createGain(); lfoVibG.gain.value=6; // ±6 Hz
+  lfoVib.connect(lfoVibG).connect(therOsc.frequency); lfoVib.start();
+
+  // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
+  // External BGM + shared volume
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
-  bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100;
+  bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain();
+  const initVol=parseInt(bgmVolEl.value,10)/100;
+  bgmGain.gain.value=initVol;
   bgmSrc.connect(bgmGain).connect(masterG);
   ['play','pause','ended'].forEach(ev=>bgmEl.addEventListener(ev, handleBgmState, {passive:true}));
-  bgmVolEl.oninput=()=>{ if(bgmGain) bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100; };
+  bgmVolEl.oninput=syncSharedVolume;
 
   await initRecorder();
   initSensors();
+  updateStopButton();
+}
+
+function syncSharedVolume(){
+  if(!audioCtx) return;
+  const v = parseInt(bgmVolEl.value,10)/100;
+  if(bgmGain) bgmGain.gain.value=v;
+  // apply to env master as well (max cap for natural level)
+  const activeBgm = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
+  const target = activeBgm ? 0.0 : (anyEnvSelected()? v*0.35 : 0.0);
+  envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
+  envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.05);
+}
+
+function handleBgmState(){
+  updateStopButton();
+  syncSharedVolume();
+}
+function updateStopButton(){
+  const running = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
+  btnStopMusic.disabled = !running;
 }
 
 async function initRecorder(){
@@ -150,15 +190,14 @@ async function initRecorder(){
   recNode=new AudioWorkletNode(audioCtx,'mix-tap'); const tap=audioCtx.createGain(); tap.gain.value=1.0; masterG.connect(tap).connect(recNode);
   recNode.port.onmessage=(e)=>{ if(recording) recBuffers.push(new Float32Array(e.data)); };
 }
-
 function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
 function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
 function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
 
-function handleBgmState(){ setEnvMuted(!!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src)); }
 function setEnvMuted(muted){
   if(!envMaster || !audioCtx) return;
-  const target = muted ? 0.0 : (anyEnvSelected()? 0.35 : 0.0);
+  const v = parseInt(bgmVolEl.value,10)/100;
+  const target = muted ? 0.0 : (anyEnvSelected()? v*0.35 : 0.0);
   envMaster.gain.cancelScheduledValues(audioCtx.currentTime);
   envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.08);
 }
@@ -245,7 +284,8 @@ function env_start(type){
         const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.7+Math.random()*1.2;
         const amG=audioCtx.createGain(); amG.gain.value=0.22+Math.random()*0.18;
         const g=audioCtx.createGain(); g.gain.value=0.18;
-        const pan=mkPanner(); if(pan) pan.pan.value=(Math.random()*2-1)*0.6;
+        const pan=typeof audioCtx.createStereoPanner==='function'?audioCtx.createStereoPanner():null;
+        if(pan) pan.pan.value=(Math.random()*2-1)*0.6;
         am.connect(amG).connect(g.gain);
         (pan? src.connect(bp).connect(g).connect(pan).connect(envMaster) : src.connect(bp).connect(g).connect(envMaster));
         src.start(); am.start();
@@ -310,12 +350,16 @@ function handleOrient(e){
 
   const P = onePeak90(state.pitch); // 0..1, peak at 90°
 
-  const base=220, range=900;
+  // Wider range & brighter as it gets louder
+  const base=220, range=1100;
   const f = base + P * range;
-  if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3000), audioCtx.currentTime, 0.03);
+  if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3200), audioCtx.currentTime, 0.03);
 
-  const vol = 0.03 + P * 0.17;
+  const vol = 0.05 + P * 0.30; // ↑ max volume
   if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
+
+  // Subtle tone opening with pitch
+  if(therFilter && audioCtx) therFilter.frequency.linearRampToValueAtTime(1800 + P*2600, audioCtx.currentTime+0.06);
 }
 
 function handleMotion(e){
@@ -338,6 +382,8 @@ function playChime(){ if(!chimeBuf||!audioCtx) return; const s=audioCtx.createBu
 /* UI Buttons */
 btnPick.onclick=()=> bgmFile.click();
 bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
+btnStopMusic.onclick=()=>{ try{ bgmEl.pause(); bgmEl.currentTime=0; bgmEl.src=''; }catch(e){} updateStopButton(); handleBgmState(); };
+
 btnPause.onclick=async ()=>{ if(!audioCtx) return; if(audioCtx.state==='running'){ await audioCtx.suspend(); btnPause.textContent='▶ Resume'; } else { await audioCtx.resume(); btnPause.textContent='⏸ Pause'; } };
 
 /* Recorder with indicator */
@@ -350,7 +396,7 @@ function stopRec(){ recording=false;
   recStartBtn.disabled=false; recStopBtn.disabled=true;
   recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
   const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
-  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v21_1_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
   recStatus.textContent='Idle';
 }
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
