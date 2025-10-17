@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>AERIAL v20 — Distributable Edition</title>
-<link rel="manifest" href="manifest.json?v=20"/>
+<title>AERIAL v20.1 — Distributable Edition</title>
+<link rel="manifest" href="manifest.json?v=20.1"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
-  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98}
+  :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,'Noto Sans JP',sans-serif}
   main{max-width:980px;margin:0 auto;padding:14px}
   .card{background:#12151b;border:1px solid #1f242c;border-radius:12px;padding:12px;margin:12px 0}
@@ -16,11 +16,15 @@
   #burst{position:fixed;inset:0;pointer-events:none;z-index:5}
   #unlock{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:10}
   #unlock > div{background:#0f1320;border:1px solid #253043;border-radius:14px;padding:16px 18px;text-align:center}
+
+  .rec-badge{display:inline-flex;align-items:center;gap:8px;padding:4px 8px;border-radius:10px;border:1px solid #442; background:#1a0a0a;color:#ffb3b3}
+  .rec-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
+  @keyframes blink{0%,55%{opacity:1}75%{opacity:.25}100%{opacity:1}}
 </style>
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v20 — Distributable Edition</h1>
+    <h1 style="margin:0 0 8px">AERIAL v20.1 — Distributable Edition</h1>
     <div class="row">
       <button id="btnPause">⏸ Pause</button>
       <label>Master</label><input id="master" type="range" min="0" max="100" value="70"/>
@@ -29,7 +33,10 @@
       <label>BGM</label>
       <select id="bgmMode"><option value="file">ファイル</option></select>
       <input id="bgmFile" type="file" accept="audio/*"/>
-      <button id="recStart">🎙 Start Recording</button><button id="recStop" disabled>⏹ Stop</button><span id="recStatus" class="muted">Idle</span>
+      <button id="recStart">🎙 Start Recording</button>
+      <button id="recStop" disabled>⏹ Stop</button>
+      <span id="recStatus" class="muted">Idle</span>
+      <span id="recBadge" class="rec-badge" style="display:none"><span class="rec-dot"></span>REC</span>
     </div>
     <div class="row" style="margin-top:8px">
       <span class="muted" style="background:transparent;border:none;padding:0">環境音（複数選択）:</span>
@@ -49,10 +56,10 @@
   <button id="btnUnlock">▶ Tap to Start</button>
 </div></div>
 <script>
-/* ===== v20: hard update guard + refined mapping/ratio ===== */
-// v20初回ロードで旧キャッシュを掃除（aerial-*）
+/* ===== v20.1: fixes + improved ambience + recording indicator ===== */
+// v20.1初回ロードで旧キャッシュを掃除（aerial-*）
 (async ()=>{
-  const VER='20', KEY='aerial_ver';
+  const VER='20.1', KEY='aerial_ver';
   try{
     const cur=localStorage.getItem(KEY);
     if(cur!==VER && 'caches' in window){
@@ -68,11 +75,13 @@ let chimeBuf=null, chimeGain;
 let bgmEl=null, bgmSrc=null, bgmGain=null;
 let recNode, recBuffers=[], recording=false, recSampleRate=48000;
 let envMaster=null, env={};
+let lastR=0; // for theremin immediate slider response
 
 const masterEl=document.getElementById('master'), thgainEl=document.getElementById('thgain');
 const bgmVolEl=document.getElementById('bgmVol');
 const bgmMode=document.getElementById('bgmMode'), bgmFile=document.getElementById('bgmFile');
 const recStartBtn=document.getElementById('recStart'), recStopBtn=document.getElementById('recStop'), recStatus=document.getElementById('recStatus');
+const recBadge=document.getElementById('recBadge');
 const btnPause=document.getElementById('btnPause');
 const overlay=document.getElementById('unlock'), btnUnlock=document.getElementById('btnUnlock');
 
@@ -93,7 +102,6 @@ function lerpAngle(prev, next, alpha){
   if(d<-180) d+=360;
   return wrap360(p + d*alpha);
 }
-// one-peak mountain: 0..360 -> [0..1], max at 180, min at 0/360. Within any 180° interval, both extremes appear.
 function onePeak(deg){ const x=wrap360(deg)*Math.PI/180; return (1-Math.cos(x))/2; }
 
 async function initRecorder(){
@@ -116,24 +124,33 @@ async function setup(){
   const limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-8;limiter.knee.value=12;limiter.ratio.value=12;limiter.attack.value=0.003;limiter.release.value=0.25;
   masterG.connect(limiter).connect(audioCtx.destination);
 
+  // Master slider live
+  masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
+
   // Environment bus
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
 
-  // Theremin (louder baseline; shaped by slider & mapping)
+  // Theremin
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
   therGain=audioCtx.createGain();
   therGain.gain.value = 0.10;
   therOsc.connect(therGain).connect(masterG); therOsc.start();
+  thgainEl.oninput=()=>{ // immediate reflect without waiting orientation
+    const user=parseInt(thgainEl.value,10)/100;
+    const vol=(0.05 + lastR * 0.13) * user;
+    therGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.03);
+  };
 
   // Chime
   try{ const r=await fetch('Chime.mp3'); const ab=await r.arrayBuffer(); chimeBuf=await audioCtx.decodeAudioData(ab);}catch(e){}
   chimeGain=audioCtx.createGain(); chimeGain.gain.value=Math.pow(10,2.5/20); chimeGain.connect(masterG);
 
-  // External BGM with volume control
+  // External BGM
   bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
   bgmSrc=audioCtx.createMediaElementSource(bgmEl); bgmGain=audioCtx.createGain(); bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100;
   bgmSrc.connect(bgmGain).connect(masterG);
   ['play','pause','ended'].forEach(ev=>bgmEl.addEventListener(ev, handleBgmState, {passive:true}));
+  bgmVolEl.oninput=()=>{ if(bgmGain) bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100; };
 
   await initRecorder();
   initSensors();
@@ -160,15 +177,14 @@ function handleOrient(e){
   state.pitch = lerpAngle(state.pitch, pitchRaw, 0.14);
   state.roll = lerpAngle(state.roll, rollRaw, 0.14);
 
-  const P = onePeak(state.pitch); // 0..1
-  const R = onePeak(state.roll);  // 0..1
+  const P = onePeak(state.pitch);
+  const R = onePeak(state.roll);
+  lastR = R;
 
-  // Frequency from blended peaks (peak @180°)
   const base=220, range=900;
   const f = base + (P*0.6 + R*0.4) * range;
   if(therOsc && audioCtx) therOsc.frequency.setTargetAtTime(clamp(f,40,3000), audioCtx.currentTime, 0.03);
 
-  // Volume from roll-peak + user slider
   const user = parseInt(thgainEl.value,10)/100;
   const vol = (0.05 + R * 0.13) * user;
   if(therGain && audioCtx) therGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime+0.05);
@@ -198,21 +214,31 @@ function fit(){const r=window.devicePixelRatio||1; cvs.width=innerWidth*r; cvs.h
 function triggerBurst(){ burstT=performance.now(); }
 (function loop(){ requestAnimationFrame(loop); const now=performance.now(); const r=window.devicePixelRatio||1; g.setTransform(r,0,0,r,0,0); g.clearRect(0,0,cvs.width,cvs.height); if(!burstT) return; const dt=(now-burstT)/1000; if(dt>0.9){ burstT=0; return; } const cx=innerWidth/2, cy=innerHeight*0.28; const rad=40+dt*420; const a=Math.max(0,1-dt*1.2); g.beginPath(); g.arc(cx,cy,rad,0,Math.PI*2); g.strokeStyle='rgba(143,211,255,'+a.toFixed(3)+')'; g.lineWidth=2+6*(1-a); g.stroke(); })();
 
-/* ===== Recorder UI ===== */
-function startRec(){ if(!audioCtx) return; recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate; recStartBtn.disabled=true; recStopBtn.disabled=false; recStatus.textContent='Recording'; }
-function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate); const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v20_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click(); recStatus.textContent='Idle'; }
+/* ===== Recorder UI (with indicator) ===== */
+function startRec(){ if(!audioCtx) return;
+  recBuffers.length=0; recording=true; recSampleRate=audioCtx.sampleRate;
+  recStartBtn.disabled=true; recStopBtn.disabled=false;
+  recStatus.textContent='Recording'; recStatus.style.color='#ffb3b3'; recBadge.style.display='inline-flex';
+}
+function stopRec(){ recording=false;
+  recStartBtn.disabled=false; recStopBtn.disabled=true;
+  recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none';
+  const mono=concatFloat32(recBuffers); const pcm16=f32ToPCM16(mono); const wav=muxWAV(pcm16,recSampleRate);
+  const a=document.createElement('a'); a.href=URL.createObjectURL(wav); a.download='AERIAL_v20_1_'+(new Date()).toISOString().replace(/[:.]/g,'-')+'.wav'; a.click();
+  recStatus.textContent='Idle';
+}
 recStartBtn.onclick=startRec; recStopBtn.onclick=stopRec;
 
 /* ===== BGM: external file only + volume control ===== */
 bgmMode.onchange=()=>{ /* structure kept */ };
 bgmFile.onchange=async (e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); bgmEl.src=url; try{ await bgmEl.play(); }catch(e){} };
-bgmVolEl.oninput=()=>{ if(bgmGain) bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100; };
 function handleBgmState(){
   const active = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src);
   setEnvMuted(active);
 }
+bgmVolEl.oninput=()=>{ if(bgmGain) bgmGain.gain.value=parseInt(bgmVolEl.value,10)/100; };
 
-/* ===== Environment generators ===== */
+/* ===== Environment generators (improved Birds/Rain/Cafe) ===== */
 function setEnvMuted(muted){
   if(!envMaster || !audioCtx) return;
   const target = muted ? 0.0 : (anyEnvSelected()? 0.35 : 0.0);
@@ -222,75 +248,121 @@ function setEnvMuted(muted){
 function anyEnvSelected(){ return Object.values(envChecks).some(cb=>cb.checked); }
 
 function noiseBuffer(seconds=2){ const b=audioCtx.createBuffer(1,Math.max(1,Math.floor(audioCtx.sampleRate*seconds)),audioCtx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1); } return b; }
+function pinkNoiseBuffer(seconds=2){
+  const sr=audioCtx.sampleRate, n=Math.max(1,Math.floor(sr*seconds));
+  const b=audioCtx.createBuffer(1,n,sr); const d=b.getChannelData(0);
+  let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+  for(let i=0;i<n;i++){
+    const white=Math.random()*2-1;
+    b0=0.99886*b0 + white*0.0555179;
+    b1=0.99332*b1 + white*0.0750759;
+    b2=0.96900*b2 + white*0.1538520;
+    b3=0.86650*b3 + white*0.3104856;
+    b4=0.55000*b4 + white*0.5329522;
+    b5=-0.7616*b5 - white*0.0168980;
+    d[i]=b0+b1+b2+b3+b4+b5+b6*0.5362;
+    d[i]*=0.11;
+    b6=white*0.115926;
+  }
+  return b;
+}
 
 function env_start(type){
   if(env[type]?.on) return;
   env[type]={on:true, stop:()=>{}};
+  const panOK = typeof audioCtx.createStereoPanner === 'function';
+  const mkPanner = (val=0)=> panOK ? audioCtx.createStereoPanner() : null;
+
   switch(type){
     case 'wind':{
       const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(4); src.loop=true;
-      const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=600;
+      const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700;
       const lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.08;
-      const lfoG=audioCtx.createGain(); lfoG.gain.value=400; lfo.connect(lfoG).connect(lp.frequency); lfo.start();
-      const g=audioCtx.createGain(); g.gain.value=0.35;
-      src.connect(lp).connect(g).connect(envMaster); src.start();
+      const lfoG=audioCtx.createGain(); lfoG.gain.value=500; lfo.connect(lfoG).connect(lp.frequency); lfo.start();
+      const g=audioCtx.createGain(); g.gain.value=0.32;
+      const p=mkPanner(); if(p){p.pan.value=0; src.connect(lp).connect(g).connect(p).connect(envMaster);} else { src.connect(lp).connect(g).connect(envMaster); }
+      src.start();
       env[type].stop=()=>{ try{src.stop();}catch{} lfo.stop(); };
     }break;
     case 'waves':{
-      const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(4); src.loop=true;
-      const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=220; bp.Q.value=0.5;
-      const trem=audioCtx.createOscillator(); trem.type='sine'; trem.frequency.value=0.18;
-      const tremG=audioCtx.createGain(); tremG.gain.value=0.25;
-      const g=audioCtx.createGain(); g.gain.value=0.3;
-      trem.connect(tremG).connect(g.gain);
-      src.connect(bp).connect(g).connect(envMaster); src.start(); trem.start();
-      env[type].stop=()=>{ try{src.stop();}catch{} trem.stop(); };
+      const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(4); src.loop=true;
+      const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=180; bp.Q.value=0.6;
+      const swell=audioCtx.createOscillator(); swell.type='sine'; swell.frequency.value=0.16;
+      const swellG=audioCtx.createGain(); swellG.gain.value=0.35;
+      const g=audioCtx.createGain(); g.gain.value=0.32;
+      swell.connect(swellG).connect(g.gain);
+      const p=mkPanner(); if(p){p.pan.value=-0.2; src.connect(bp).connect(g).connect(p).connect(envMaster);} else { src.connect(bp).connect(g).connect(envMaster); }
+      src.start(); swell.start();
+      env[type].stop=()=>{ try{src.stop();}catch{} swell.stop(); };
     }break;
     case 'rain':{
-      const g=audioCtx.createGain(); g.gain.value=0.25; g.connect(envMaster);
+      // Base pink hiss + discrete drops with stereo spread
+      const base=audioCtx.createBufferSource(); base.buffer=pinkNoiseBuffer(3); base.loop=true;
+      const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200;
+      const g=audioCtx.createGain(); g.gain.value=0.18;
+      const p=mkPanner(); if(p){p.pan.value=0; base.connect(hp).connect(g).connect(p).connect(envMaster);} else { base.connect(hp).connect(g).connect(envMaster); }
+      base.start();
       let alive=true;
       function drop(){
         if(!alive) return;
-        const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(0.1); src.loop=false;
-        const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=2000;
+        const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(0.12);
+        const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2800; bp.Q.value=6;
         const eg=audioCtx.createGain(); eg.gain.value=0.0;
-        src.connect(hp).connect(eg).connect(g);
+        const pan=mkPanner(); if(pan) pan.pan.value=(Math.random()*2-1)*0.8;
+        (pan? src.connect(bp).connect(eg).connect(pan).connect(envMaster) : src.connect(bp).connect(eg).connect(envMaster));
         const t=audioCtx.currentTime;
         eg.gain.setValueAtTime(0.0,t);
-        eg.gain.linearRampToValueAtTime(0.7,t+0.01);
-        eg.gain.exponentialRampToValueAtTime(0.001,t+0.25);
-        src.start(t); src.stop(t+0.3);
-        setTimeout(drop, Math.random()*120+40);
+        eg.gain.linearRampToValueAtTime(0.9,t+0.005);
+        eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+        src.start(t); src.stop(t+0.22);
+        setTimeout(drop, 60+Math.random()*90);
       }
       drop();
-      env[type].stop=()=>{ alive=false; };
+      env[type].stop=()=>{ alive=false; try{base.stop();}catch{} };
     }break;
     case 'cafe':{
-      const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(3); src.loop=true;
-      const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1000; bp.Q.value=0.8;
-      const trem=audioCtx.createOscillator(); trem.type='sine'; trem.frequency.value=2.2;
-      const tremG=audioCtx.createGain(); tremG.gain.value=0.12;
-      const g=audioCtx.createGain(); g.gain.value=0.22;
-      trem.connect(tremG).connect(g.gain);
-      src.connect(bp).connect(g).connect(envMaster); src.start(); trem.start();
-      env[type].stop=()=>{ try{src.stop();}catch{} trem.stop(); };
+      // Multi-voice babble: bandpassed pink with slow AM, slight detuned centers
+      const voices=[];
+      const centers=[600, 850, 1100, 1400];
+      for(const fc of centers){
+        const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(2.5); src.loop=true;
+        const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=fc; bp.Q.value=1.2;
+        const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.7+Math.random()*1.2;
+        const amG=audioCtx.createGain(); amG.gain.value=0.22+Math.random()*0.18;
+        const g=audioCtx.createGain(); g.gain.value=0.18;
+        const pan=mkPanner(); if(pan) pan.pan.value=(Math.random()*2-1)*0.6;
+        am.connect(amG).connect(g.gain);
+        (pan? src.connect(bp).connect(g).connect(pan).connect(envMaster) : src.connect(bp).connect(g).connect(envMaster));
+        src.start(); am.start();
+        voices.push(()=>{ try{src.stop();}catch{} try{am.stop();}catch{} });
+      }
+      env[type].stop=()=>{ voices.forEach(fn=>fn()); };
     }break;
     case 'birds':{
-      const g=audioCtx.createGain(); g.gain.value=0.18; g.connect(envMaster);
+      // FM-like chirps with panning and better envelope
+      const g=audioCtx.createGain(); g.gain.value=0.14;
+      g.connect(envMaster);
       let alive=true;
       function chirp(){
         if(!alive) return;
-        const o=audioCtx.createOscillator(); o.type='triangle';
+        const c=audioCtx.createOscillator(); c.type='sine';
+        const m=audioCtx.createOscillator(); m.type='sine';
+        const idx=audioCtx.createGain(); idx.gain.value=900; // modulation index
+        m.frequency.value=1200+Math.random()*800;
+        c.frequency.value=2200+Math.random()*1800;
+        m.connect(idx).connect(c.frequency);
         const eg=audioCtx.createGain(); eg.gain.value=0.0;
-        o.connect(eg).connect(g);
-        const base=2400+Math.random()*2000;
-        o.frequency.setValueAtTime(base, audioCtx.currentTime);
-        o.frequency.exponentialRampToValueAtTime(base/2, audioCtx.currentTime+0.12+Math.random()*0.06);
-        eg.gain.setValueAtTime(0.0, audioCtx.currentTime);
-        eg.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime+0.02);
-        eg.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+0.22);
-        o.start(); o.stop(audioCtx.currentTime+0.25);
-        setTimeout(chirp, 400+Math.random()*1200);
+        const pan= (typeof audioCtx.createStereoPanner==='function') ? audioCtx.createStereoPanner() : null;
+        const chain = pan ? (eg.connect(pan), pan.connect(g)) : eg.connect(g);
+        c.connect(eg);
+        const t=audioCtx.currentTime;
+        eg.gain.setValueAtTime(0.0,t);
+        eg.gain.linearRampToValueAtTime(0.6,t+0.02);
+        eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+        if(pan){ pan.pan.setValueAtTime((Math.random()*2-1)*0.7, t); }
+        c.start(t); m.start(t);
+        c.stop(t+0.2); m.stop(t+0.2);
+        setTimeout(chirp, 250+Math.random()*900);
       }
       chirp();
       env[type].stop=()=>{ alive=false; };
