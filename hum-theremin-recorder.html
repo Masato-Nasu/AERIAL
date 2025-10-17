@@ -3,8 +3,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta http-equiv="cache-control" content="no-store, max-age=0"/>
-<title>AERIAL v22.1</title>
-<link rel="manifest" href="manifest.json?v=22.1"/>
+<title>AERIAL v22.2</title>
+<link rel="manifest" href="manifest.json?v=22.2"/>
 <link rel="icon" href="icon-192.png" sizes="192x192"/>
 <style>
   :root{--bg:#0e0f12;--fg:#e6e6e6;--muted:#8a8f98;--accent:#ff4d4d}
@@ -25,7 +25,7 @@
 </head><body>
 <main>
   <section class="card">
-    <h1 style="margin:0 0 8px">AERIAL v22.1</h1>
+    <h1 style="margin:0 0 8px">AERIAL v22.2</h1>
     <div class="row">
       <label>Master</label><input id="master" type="range" min="0" max="100" value="80"/>
       <label>BGM Vol</label><input id="bgmVol" type="range" min="0" max="100" value="70"/>
@@ -55,7 +55,7 @@
 </div></div>
 <script>
 if('serviceWorker' in navigator){
-  addEventListener('load', async ()=>{ try{ await navigator.serviceWorker.register('./sw.js?v=22.1&bust='+Date.now()); }catch(e){} });
+  addEventListener('load', async ()=>{ try{ await navigator.serviceWorker.register('./sw.js?v=22.2&bust='+Date.now()); }catch(e){} });
 }
 </script>
 <script>
@@ -89,7 +89,7 @@ async function setup(){
   const limiter=audioCtx.createDynamicsCompressor(); limiter.threshold.value=-6;limiter.knee.value=14;limiter.ratio.value=14;limiter.attack.value=0.003;limiter.release.value=0.25;
   masterG.connect(limiter); limiter.connect(audioCtx.destination);
   streamDest = audioCtx.createMediaStreamDestination(); limiter.connect(streamDest);
-  try{ const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''); recorder = new MediaRecorder(streamDest.stream, mime? {mimeType:mime}:{}); recorder.ondataavailable = ev => { if(ev.data && ev.data.size>0) recChunks.push(ev.data); }; recorder.onstop = ()=>{ const blob = new Blob(recChunks, {type: recorder.mimeType || 'audio/webm'}); recChunks.length=0; downloadBlob(blob, 'AERIAL_v22.1_'+ts()+(blob.type.includes('webm')?'.webm':'.wav')); recStatus.textContent='Idle'; }; }catch(e){ recorder=null; }
+  try{ const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''); recorder = new MediaRecorder(streamDest.stream, mime? {mimeType:mime}:{}); recorder.ondataavailable = ev => { if(ev.data && ev.data.size>0) recChunks.push(ev.data); }; recorder.onstop = ()=>{ const blob = new Blob(recChunks, {type: recorder.mimeType || 'audio/webm'}); recChunks.length=0; downloadBlob(blob, 'AERIAL_v22.2_'+ts()+(blob.type.includes('webm')?'.webm':'.wav')); recStatus.textContent='Idle'; }; }catch(e){ recorder=null; }
   masterEl.oninput=()=>{ if(masterG) masterG.gain.value=parseInt(masterEl.value,10)/100; };
   envMaster=audioCtx.createGain(); envMaster.gain.value=0.0; envMaster.connect(masterG);
   therOsc=audioCtx.createOscillator(); therOsc.type='sine';
@@ -114,34 +114,30 @@ async function setup(){
 }
 function handleBgmState(){ updateStopButton(); syncSharedVolume(); }
 function updateStopButton(){ const running = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); btnStopMusic.disabled=!running; }
-function syncSharedVolume(){ if(!audioCtx) return; const v = parseInt(bgmVolEl.value,10)/100; if(bgmGain) bgmGain.gain.value=v; const active = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); const target = active ? 0.0 : (anyEnvSelected()? Math.max(0.16, v*0.48) : 0.0); envMaster.gain.cancelScheduledValues(audioCtx.currentTime); envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.08); }
-function setEnvMuted(muted){ if(!envMaster || !audioCtx) return; const v = parseInt(bgmVolEl.value,10)/100; const target = muted ? 0.0 : (anyEnvSelected()? Math.max(0.16, v*0.48) : 0.0); envMaster.gain.cancelScheduledValues(audioCtx.currentTime); envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.1); }
+function syncSharedVolume(){ if(!audioCtx) return; const v = parseInt(bgmVolEl.value,10)/100; if(bgmGain) bgmGain.gain.value=v; const active = !!(bgmEl && !bgmEl.paused && !bgmEl.ended && bgmEl.src); const target = active ? 0.0 : (anyEnvSelected()? Math.max(0.2, v*0.55) : 0.0); envMaster.gain.cancelScheduledValues(audioCtx.currentTime); envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.08); }
+function setEnvMuted(muted){ if(!envMaster || !audioCtx) return; const v = parseInt(bgmVolEl.value,10)/100; const target = muted ? 0.0 : (anyEnvSelected()? Math.max(0.2, v*0.55) : 0.0); envMaster.gain.cancelScheduledValues(audioCtx.currentTime); envMaster.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.1); }
 function noiseBuffer(seconds=2){ const b=audioCtx.createBuffer(1,Math.max(1,Math.floor(audioCtx.sampleRate*seconds)),audioCtx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1); return b; }
 function pinkNoiseBuffer(seconds=2){ const sr=audioCtx.sampleRate, n=Math.max(1,Math.floor(sr*seconds)); const b=audioCtx.createBuffer(1,n,sr); const d=b.getChannelData(0); let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0; for(let i=0;i<n;i++){ const white=Math.random()*2-1; b0=0.99886*b0 + white*0.0555179; b1=0.99332*b1 + white*0.0750759; b2=0.96900*b2 + white*0.1538520; b3=0.86650*b3 + white*0.3104856; b4=0.55000*b4 + white*0.5329522; b5=-0.7616*b5 - white*0.0168980; d[i]=b0+b1+b2+b3+b4+b5+b6*0.5362; d[i]*=0.11; b6=white*0.115926; } return b; }
 function env_start(type){ if(env[type]?.on) return; env[type]={on:true, stop:()=>{}}; const panOK = typeof audioCtx.createStereoPanner === 'function';
   switch(type){
     case 'wind':{ const src=audioCtx.createBufferSource(); src.buffer=noiseBuffer(4); src.loop=true; const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700; const lfo=audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.08; const lfoG=audioCtx.createGain(); lfoG.gain.value=500; lfo.connect(lfoG).connect(lp.frequency); lfo.start(); const g=audioCtx.createGain(); g.gain.value=0.34; const p=panOK?audioCtx.createStereoPanner():null; (p? src.connect(lp).connect(g).connect(p).connect(envMaster) : src.connect(lp).connect(g).connect(envMaster)); src.start(); env[type].stop=()=>{ try{src.stop();}catch{} try{lfo.stop();}catch{} }; }break;
     case 'waves':{ const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(4); src.loop=true; const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=180; bp.Q.value=0.6; const swell=audioCtx.createOscillator(); swell.type='sine'; swell.frequency.value=0.16; const swellG=audioCtx.createGain(); swellG.gain.value=0.35; const g=audioCtx.createGain(); g.gain.value=0.34; swell.connect(swellG).connect(g.gain); const p=panOK?audioCtx.createStereoPanner():null; (p? src.connect(bp).connect(g).connect(p).connect(envMaster) : src.connect(bp).connect(g).connect(envMaster)); src.start(); swell.start(); env[type].stop=()=>{ try{src.stop();}catch{} try{swell.stop();}catch{} }; }break;
-    case 'rain':{ // --- More natural rain: body + hiss + randomized drops + gentle AM ---
-      // Body layer
+    case 'rain':{ // Body + Hiss + Randomized drops + gentle AM
       const body=audioCtx.createBufferSource(); body.buffer=pinkNoiseBuffer(4); body.loop=true;
       const bpBody=audioCtx.createBiquadFilter(); bpBody.type='bandpass'; bpBody.frequency.value=1000; bpBody.Q.value=0.8;
       const gBody=audioCtx.createGain(); gBody.gain.value=0.22;
-      // Hiss layer
       const hiss=audioCtx.createBufferSource(); hiss.buffer=noiseBuffer(4); hiss.loop=true;
       const hpHiss=audioCtx.createBiquadFilter(); hpHiss.type='highpass'; hpHiss.frequency.value=4500;
       const gHiss=audioCtx.createGain(); gHiss.gain.value=0.08;
-      // Gentle AM to avoid static
       const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.12;
-      const amG=audioCtx.createGain(); amG.gain.value=0.15; // ±15%
+      const amG=audioCtx.createGain(); amG.gain.value=0.15;
       const gSum=audioCtx.createGain(); gSum.gain.value=1.0;
       am.connect(amG).connect(gSum.gain);
-      const chainBody = body.connect(bpBody).connect(gBody).connect(gSum);
-      const chainHiss = hiss.connect(hpHiss).connect(gHiss).connect(gSum);
+      body.connect(bpBody).connect(gBody).connect(gSum);
+      hiss.connect(hpHiss).connect(gHiss).connect(gSum);
       const p=panOK?audioCtx.createStereoPanner():null;
       (p? gSum.connect(p).connect(envMaster) : gSum.connect(envMaster));
       body.start(); hiss.start(); am.start();
-      // Randomized drops
       let alive=true;
       function dropBurst(){
         if(!alive) return;
@@ -159,23 +155,29 @@ function env_start(type){ if(env[type]?.on) return; env[type]={on:true, stop:()=
       dropBurst();
       env[type].stop=()=>{ alive=false; try{body.stop();}catch{} try{hiss.stop();}catch{} try{am.stop();}catch{} };
     }break;
-    case 'cafe':{ // --- Louder & richer cafe ambience ---
+    case 'cafe':{ // Guaranteed audible cafe ambience
       const voices=[];
-      const centers=[550,850,1100,1400,1700];
+      const centers=[320,550,850,1100,1400,1700];
       const panOKLocal = panOK && typeof audioCtx.createStereoPanner==='function';
+      // Low murmur bed (helps on phone speakers)
+      const bed=audioCtx.createBufferSource(); bed.buffer=pinkNoiseBuffer(3.5); bed.loop=true;
+      const bedBP=audioCtx.createBiquadFilter(); bedBP.type='bandpass'; bedBP.frequency.value=320; bedBP.Q.value=0.6;
+      const bedG=audioCtx.createGain(); bedG.gain.value=0.22;
+      bed.connect(bedBP).connect(bedG).connect(envMaster); bed.start();
+      voices.push(()=>{ try{bed.stop();}catch{} });
       for(const fc of centers){
         const src=audioCtx.createBufferSource(); src.buffer=pinkNoiseBuffer(3.0); src.loop=true;
-        const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=fc; bp.Q.value=1.0;
-        const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.5+Math.random()*1.1;
-        const amG=audioCtx.createGain(); amG.gain.value=0.28+Math.random()*0.22;
-        const g=audioCtx.createGain(); g.gain.value=0.26; // louder than before
+        const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=fc; bp.Q.value=0.9;
+        const am=audioCtx.createOscillator(); am.type='sine'; am.frequency.value=0.45+Math.random()*1.0;
+        const amG=audioCtx.createGain(); amG.gain.value=0.30+Math.random()*0.25;
+        const g=audioCtx.createGain(); g.gain.value=0.34; // louder
         am.connect(amG).connect(g.gain);
-        if(panOKLocal){ const p=audioCtx.createStereoPanner(); p.pan.value=(Math.random()*2-1)*0.65; src.connect(bp).connect(g).connect(p).connect(envMaster); }
+        if(panOKLocal){ const p=audioCtx.createStereoPanner(); p.pan.value=(Math.random()*2-1)*0.75; src.connect(bp).connect(g).connect(p).connect(envMaster); }
         else { src.connect(bp).connect(g).connect(envMaster); }
         src.start(); am.start();
         voices.push(()=>{ try{src.stop();}catch{} try{am.stop();}catch{} });
       }
-      // Occasional "clink" sounds
+      // Occasional "clink"
       let alive=true;
       function clink(){
         if(!alive) return;
@@ -185,10 +187,10 @@ function env_start(type){ if(env[type]?.on) return; env[type]={on:true, stop:()=
         const t=audioCtx.currentTime;
         src.connect(bp).connect(eg).connect(envMaster);
         eg.gain.setValueAtTime(0.0,t);
-        eg.gain.linearRampToValueAtTime(0.7,t+0.005);
+        eg.gain.linearRampToValueAtTime(0.6,t+0.005);
         eg.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
         src.start(t); src.stop(t+0.2);
-        setTimeout(clink, 1200+Math.random()*2200);
+        setTimeout(clink, 1000+Math.random()*2000);
       }
       clink();
       env[type].stop=()=>{ alive=false; voices.forEach(fn=>fn()); };
@@ -206,7 +208,7 @@ function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=U
 let workletNode=null, workletTap=null;
 async function initWorkletFallback(){ if(!audioCtx || workletNode) return; const code=`class MixTap extends AudioWorkletProcessor{process(i){const ch=i[0]?.[0];if(ch){this.port.postMessage(ch.slice());}return true;}}registerProcessor('mix-tap',MixTap);`; const blob=new Blob([code],{type:'application/javascript'}); const url=URL.createObjectURL(blob); await audioCtx.audioWorklet.addModule(url); workletNode=new AudioWorkletNode(audioCtx,'mix-tap'); workletTap=audioCtx.createGain(); workletTap.gain.value=1.0; masterG.connect(workletTap).connect(workletNode); workletNode.port.onmessage=(e)=>{ if(recording && e.data) recBuffers.push(new Float32Array(e.data)); }; }
 function startRec(){ if(!audioCtx) return; recStatus.textContent='Recording'; recStatus.style.color='#ffb3b3'; recBadge.style.display='inline-flex'; recStartBtn.disabled=true; recStopBtn.disabled=false; recording=true; if(recorder){ recChunks.length=0; try{ recorder.start(100); }catch(e){ console.warn('MediaRecorder start failed', e); } } else { recBuffers.length=0; recSampleRate=audioCtx.sampleRate; initWorkletFallback(); } }
-function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none'; if(recorder && recorder.state!=='inactive'){ try{ recorder.stop(); }catch(e){ console.warn('MediaRecorder stop failed', e); recStatus.textContent='Idle'; } } else { const pcm16=f32ToPCM16(concatFloat32(recBuffers)); const wav=muxWAV(pcm16, recSampleRate||48000); downloadBlob(wav, 'AERIAL_v22.1_'+ts()+'.wav'); recStatus.textContent='Idle'; } }
+function stopRec(){ recording=false; recStartBtn.disabled=false; recStopBtn.disabled=true; recStatus.textContent='Saving...'; recStatus.style.color=''; recBadge.style.display='none'; if(recorder && recorder.state!=='inactive'){ try{ recorder.stop(); }catch(e){ console.warn('MediaRecorder stop failed', e); recStatus.textContent='Idle'; } } else { const pcm16=f32ToPCM16(concatFloat32(recBuffers)); const wav=muxWAV(pcm16, recSampleRate||48000); downloadBlob(wav, 'AERIAL_v22.2_'+ts()+'.wav'); recStatus.textContent='Idle'; } }
 function concatFloat32(arrs){let n=0;arrs.forEach(a=>n+=a.length);const out=new Float32Array(n);let o=0;for(const a of arrs){out.set(a,o);o+=a.length;}return out;}
 function f32ToPCM16(f32){const dv=new DataView(new ArrayBuffer(f32.length*2));for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));dv.setInt16(i*2,s<0? s*0x8000 : s*0x7FFF,true);}return dv;}
 function muxWAV(pcm16,sr){const buf=new ArrayBuffer(44+pcm16.byteLength);const v=new DataView(buf);function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}ws(0,'RIFF');v.setUint32(4,36+pcm16.byteLength,true);ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,pcm16.byteLength,true);return new Blob([v,pcm16],{type:'audio/wav'});}
